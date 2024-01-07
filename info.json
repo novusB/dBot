@@ -1,0 +1,8 @@
+{
+    "author" : ["novusB"],
+    "install_msg" : "This is a private repo, not for public distribution and/or use.",
+    "name" : "novusB plugins",
+    "short" : "Privately created discord plugins.",
+    "description" : "Utility plugins for Discord.",
+    "tags" : ["utility"]
+}
