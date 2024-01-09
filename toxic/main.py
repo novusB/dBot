@@ -49,10 +49,10 @@ class Toxic(commands.Cog):
         settings: GuildSettings = await self.config.guild(ctx.guild).all()
         print(settings)
         if user.id == ctx.author.id or user.id == self.bot.user.id:
-            return await ctx.send("You cannot vote to kick yourself or" self.bot)
+            return await ctx.send("You cannot vote to kick yourself or the bot!")
 
         if user == ctx.guild.owner:
-            return await ctx.send("You cannot vote to kick the owner.")
+            return await ctx.send("You cannot vote to kick the owner!")
 
         if user.bot:
             return await ctx.send("You cannot vote to kick server bots.")
