@@ -41,11 +41,11 @@ class Toxic(commands.Cog):
         except RuntimeError:
             pass
 
-    @commands.command(name="vote")
+    @commands.command(name="toxic")
     @commands.max_concurrency(1, commands.BucketType.guild)
     @commands.guild_only()
-    async def vote(self, ctx: commands.Context, user: discord.Member, *, reason: str):
-        """Start a vote to kick toxic user."""
+    async def toxic(self, ctx: commands.Context, user: discord.Member, *, reason: str):
+        """Start a vote to punish toxic user."""
         settings: GuildSettings = await self.config.guild(ctx.guild).all()
         print(settings)
         if user.id == ctx.author.id or user.id == self.bot.user.id:
@@ -106,7 +106,7 @@ class Toxic(commands.Cog):
         name="toxicsettings", aliases=["toxicset", "tset"], invoke_without_command=True
     )
     async def vs(self, ctx: commands.Context):
-        """Change the settings for the commands"""
+        """Change the Toxic Player Punishment Settings."""
         settings: GuildSettings = await self.config.guild(ctx.guild).all()
         settings_embed = discord.Embed(
             title="Toxic Player Settings",
@@ -114,7 +114,7 @@ class Toxic(commands.Cog):
                 f"**Voting Timeout:** {cf.humanize_timedelta(seconds=settings['timeout'])} before voting ends.\n"
                 f"**Game Roles:** {cf.humanize_list(list(map(lambda x: f'<@&{x}>', settings['game_roles']))) or 'No roles set up. Admin/mod roles required to set roles.'}\n"
                 f"**Votes Needed:** {settings['votes_needed']} votes required to {settings['action']} user.\n"
-                f"**Anonymous Votes:** Voters will{' not ' if settings['anon_votes'] else ' '}be announced. (Actions still be logged)\n"
+                f"**Anonymous Votes:** Voters will{' not ' if settings['anon_votes'] else ' '}be announced. (Punishments will still be logged!)\n"
                 f"**Ignore Hierarchy:** Role hierarchy will{' ' if settings['ignore_hierarchy'] else ' not '}be ignored.\n"
                 f"**Action to take if vote passes:** {settings['action']} user\n"
             ),
