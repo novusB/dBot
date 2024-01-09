@@ -5,9 +5,9 @@ import discord
 
 class GuildSettings(TypedDict):
     timeout: int
-    mutually_exclusive_roles: list[int]
-    threshold: int
-    anonymous_votes: bool
+    game_roles: list[int]
+    votetime: int
+    anon_votes: bool
     ignore_hierarchy: bool
     action: Literal["kick", "ban"]
     button: dict[str, str]

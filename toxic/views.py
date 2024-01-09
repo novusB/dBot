@@ -61,7 +61,7 @@ class VoteoutView(BaseView):
             settings["button"]["label"]
             .replace("{action}", settings["action"])
             .replace("{votes}", str(len(self.votes)))
-            .replace("{threshold}", str(settings["threshold"]))
+            .replace("{votetime}", str(settings["votetime"]))
             .replace("{target}", target.display_name)
         )
         self.vote.emoji = settings["button"]["emoji"]
@@ -75,7 +75,7 @@ class VoteoutView(BaseView):
             )
         if interaction.user.id == self.invoker.id:
             return await interaction.response.send_message(
-                "You can't remove your vote from a voteout you started :/",
+                "You cannot remove your vote from a something you started :'(",
                 ephemeral=True,
             )
         if interaction.user.id in self.votes:
@@ -87,20 +87,20 @@ class VoteoutView(BaseView):
         else:
             self.votes.add(interaction.user.id)
             content = (
-                f"You voted to {self.settings['action']} {self.target.display_name}."
+                f"You have voted to {self.settings['action']} {self.target.display_name}."
             )
         button.label = (
             self.settings["button"]["label"]
             .replace("{action}", self.settings["action"])
             .replace("{votes}", str(len(self.votes)))
-            .replace("{threshold}", str(self.settings["threshold"]))
+            .replace("{votetime}", str(self.settings["votetime"]))
             .replace("{target}", self.target.display_name)
         )
         to_edit = self.generate_content()
         await interaction.response.edit_message(**to_edit, view=self)
 
         await interaction.followup.send(content, ephemeral=True)
-        if not self.settings["anonymous_votes"]:
+        if not self.settings["anon_votes"]:
             await interaction.followup.send(
                 f"{interaction.user.mention} voted to {self.settings['action']} {self.invoker.display_name}.",
             )
@@ -125,9 +125,9 @@ class VoteoutView(BaseView):
 
     def generate_content(self):
         return {
-            "content": f"# Vote to {self.settings['action']} {self.target.display_name} {f'by {self.invoker.display_name}' if not self.settings['anonymous_votes'] else ''}",
+            "content": f"# Vote to {self.settings['action']} {self.target.display_name} {f'by {self.invoker.display_name}' if not self.settings['anon_votes'] else ''}",
             "embed": discord.Embed(
-                description=f"**Votes:** {len(self.votes)}\n**Threshold:** {self.settings['threshold']}",
+                description=f"**Votes:** {len(self.votes)}\n**votetime:** {self.settings['votetime']}",
                 color=self.target.color,
             ),
         }
@@ -136,18 +136,18 @@ class VoteoutView(BaseView):
         return True
 
     async def on_timeout(self):
-        if len(self.votes) >= self.settings["threshold"]:
+        if len(self.votes) >= self.settings["votetime"]:
             action = self.settings["action"]
             if action == "kick":
-                await self.target.kick(reason="Voteout")
+                await self.target.kick(reason="Toxic Player Voted Out")
 
             elif action == "ban":
-                await self.target.ban(reason="Voteout")
+                await self.target.ban(reason="Toxic Player Voted Out")
 
             actioned = "kicked" if action == "kick" else "banned"
 
             reason = (
-                f"{self.target} was {actioned} by voteout initiated by {self.invoker} for `{self.reason or 'being a bitch'}`\n"
+                f"{self.target} was {actioned} by a vote initiated by {self.invoker} for `{self.reason or 'being a toxic player'}`\n"
                 + "The voters are:\n"
                 + "\n".join(f"{i}. <@{uid}>" for i, uid in enumerate(self.votes))
             )
@@ -168,7 +168,7 @@ class VoteoutView(BaseView):
                 reason.splitlines()[0].replace(
                     (
                         "_"
-                        if self.settings["anonymous_votes"]
+                        if self.settings["anon_votes"]
                         else f" initiated by {self.invoker}"
                     ),
                     "",
@@ -177,7 +177,7 @@ class VoteoutView(BaseView):
 
         else:
             await self.message.channel.send(
-                f"The voteout failed. Required votes were {self.settings['threshold']} but the voteout only got {len(self.votes)} votes."
+                f"The voteout failed. Required votes were {self.settings['votetime']} but the voteout only got {len(self.votes)} votes."
             )
 
         await self.message.delete()
