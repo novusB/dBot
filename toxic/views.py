@@ -40,7 +40,7 @@ class BaseView(discord.ui.View):
         await self.message.edit(view=self)
 
 
-class VoteoutView(BaseView):
+class ToxicView(BaseView):
     def __init__(
         self,
         bot: Red,

@@ -5,7 +5,7 @@ from redbot.core.utils import chat_formatting as cf
 from typing import Literal, Union
 from datetime import timedelta
 
-from .views import VoteoutView
+from .views import ToxicView
 from .utils import GuildSettings, EmojiConverter
 
 
@@ -93,10 +93,10 @@ class Toxic(commands.Cog):
                 )
             if not user.get_role(user_role):
                 return await ctx.send(
-                    "You cannot vote out this user because you both have different allowed roles."
+                    "You cannot vote to kick this user because you aren't playing the same game!"
                 )
 
-        view = VoteoutView(ctx.bot, settings, ctx.author, user, reason)
+        view = ToxicView(ctx.bot, settings, ctx.author, user, reason)
 
         await view.start(ctx)
 
@@ -109,9 +109,9 @@ class Toxic(commands.Cog):
         """Change the settings for the commands"""
         settings: GuildSettings = await self.config.guild(ctx.guild).all()
         settings_embed = discord.Embed(
-            title="Toxic Vote Settings",
+            title="Toxic Player Settings",
             description=(
-                f"**Vote Timeout:** {cf.humanize_timedelta(seconds=settings['timeout'])} before voting ends.\n"
+                f"**Voting Timeout:** {cf.humanize_timedelta(seconds=settings['timeout'])} before voting ends.\n"
                 f"**Game Roles:** {cf.humanize_list(list(map(lambda x: f'<@&{x}>', settings['game_roles']))) or 'No roles set up. Admin/mod roles required to set roles.'}\n"
                 f"**Votes Needed:** {settings['votes_needed']} votes required to {settings['action']} user.\n"
                 f"**Anonymous Votes:** Voters will{' not ' if settings['anon_votes'] else ' '}be announced. (Actions still be logged)\n"
@@ -138,7 +138,7 @@ class Toxic(commands.Cog):
         """Change the timeout for voteout."""
         await self.config.guild(ctx.guild).timeout.set(duration.total_seconds())
         await ctx.send(
-            f"Successfully changed the timeout to {cf.humanize_timedelta(timedelta=duration)}."
+            f"Successfully changed the voting timeout to {cf.humanize_timedelta(timedelta=duration)}."
         )
 
     @vs.command(name="gameroles", aliases=["groles"])
@@ -162,11 +162,11 @@ class Toxic(commands.Cog):
     ):
         """Change the votes_needed for a vote, this is the number of votes required to take action on a toxic user."""
         await self.config.guild(ctx.guild).votes_needed.set(votes_needed)
-        await ctx.send(f"Successfully set vote timeout to {votes_needed}.")
+        await ctx.send(f"Successfully set votes needed to: {votes_needed}.")
 
     @vs.command(name="anonymousvotes", aliases=["anonvotes"])
     async def vs_anon_votes(self, ctx: commands.Context, value: bool):
-        """Change whether or not votes are anonymous."""
+        """Change whether or not the votes are anonymous."""
         await self.config.guild(ctx.guild).anon_votes.set(value)
         await ctx.send(f"Votes will {'' if value else 'not '}be anonymous now.")
 
