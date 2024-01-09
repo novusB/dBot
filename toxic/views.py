@@ -61,7 +61,7 @@ class VoteoutView(BaseView):
             settings["button"]["label"]
             .replace("{action}", settings["action"])
             .replace("{votes}", str(len(self.votes)))
-            .replace("{votetime}", str(settings["votetime"]))
+            .replace("{votes_needed}", str(settings["votes_needed"]))
             .replace("{target}", target.display_name)
         )
         self.vote.emoji = settings["button"]["emoji"]
@@ -93,7 +93,7 @@ class VoteoutView(BaseView):
             self.settings["button"]["label"]
             .replace("{action}", self.settings["action"])
             .replace("{votes}", str(len(self.votes)))
-            .replace("{votetime}", str(self.settings["votetime"]))
+            .replace("{votes_needed}", str(self.settings["votes_needed"]))
             .replace("{target}", self.target.display_name)
         )
         to_edit = self.generate_content()
@@ -127,7 +127,7 @@ class VoteoutView(BaseView):
         return {
             "content": f"# Vote to {self.settings['action']} {self.target.display_name} {f'by {self.invoker.display_name}' if not self.settings['anon_votes'] else ''}",
             "embed": discord.Embed(
-                description=f"**Votes:** {len(self.votes)}\n**votetime:** {self.settings['votetime']}",
+                description=f"**Votes:** {len(self.votes)}\n**votes_needed:** {self.settings['votes_needed']}",
                 color=self.target.color,
             ),
         }
@@ -136,7 +136,7 @@ class VoteoutView(BaseView):
         return True
 
     async def on_timeout(self):
-        if len(self.votes) >= self.settings["votetime"]:
+        if len(self.votes) >= self.settings["votes_needed"]:
             action = self.settings["action"]
             if action == "kick":
                 await self.target.kick(reason="Toxic Player Voted Out")
@@ -177,7 +177,7 @@ class VoteoutView(BaseView):
 
         else:
             await self.message.channel.send(
-                f"The voteout failed. Required votes were {self.settings['votetime']} but the voteout only got {len(self.votes)} votes."
+                f"The vote failed. Required votes were {self.settings['votes_needed']} but the voteout only got {len(self.votes)} votes."
             )
 
         await self.message.delete()

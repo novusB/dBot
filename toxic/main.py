@@ -16,7 +16,7 @@ class Toxic(commands.Cog):
         default_guild = {
             "timeout": 60 * 5,
             "game_roles": [],
-            "votetime": 4,
+            "votes_needed": 4,
             "anon_votes": True,
             "ignore_hierarchy": False,
             "action": "kick",
@@ -81,7 +81,7 @@ class Toxic(commands.Cog):
         )
         if not user_role and not override:
             return await ctx.send(
-                "You cannot vote to kick this user because you don't play the same games."
+                "You cannot vote to kick this user because you aren't playing the same game!"
             )
 
         elif user_role and not override:
@@ -89,11 +89,11 @@ class Toxic(commands.Cog):
                 user.get_role(role) for role in settings["game_roles"]
             ):
                 return await ctx.send(
-                    "You cannot voteout this user because they don't have any of the allowed roles."
+                    "You cannot vote out this user because they don't have any of the allowed roles."
                 )
             if not user.get_role(user_role):
                 return await ctx.send(
-                    "You cannot voteout this user because you both have different allowed roles."
+                    "You cannot vote out this user because you both have different allowed roles."
                 )
 
         view = VoteoutView(ctx.bot, settings, ctx.author, user, reason)
@@ -113,7 +113,7 @@ class Toxic(commands.Cog):
             description=(
                 f"**Vote Timeout:** {cf.humanize_timedelta(seconds=settings['timeout'])} before voting ends.\n"
                 f"**Game Roles:** {cf.humanize_list(list(map(lambda x: f'<@&{x}>', settings['game_roles']))) or 'No roles set up. Admin/mod roles required to set roles.'}\n"
-                f"**Votes Needed:** {settings['votetime']} votes required to {settings['action']} user.\n"
+                f"**Votes Needed:** {settings['votes_needed']} votes required to {settings['action']} user.\n"
                 f"**Anonymous Votes:** Voters will{' not ' if settings['anon_votes'] else ' '}be announced. (Actions still be logged)\n"
                 f"**Ignore Hierarchy:** Role hierarchy will{' ' if settings['ignore_hierarchy'] else ' not '}be ignored.\n"
                 f"**Action to take if vote passes:** {settings['action']} user\n"
@@ -156,13 +156,13 @@ class Toxic(commands.Cog):
             f"Successfully set game roles to {cf.humanize_list(list(map(lambda x: f'<@&{x.id}>', roles)))}."
         )
 
-    @vs.command(name="votetime")
-    async def vs_votetime(
-        self, ctx: commands.Context, votetime: commands.Range[int, 2, None]
+    @vs.command(name="votes_needed")
+    async def vs_votes_needed(
+        self, ctx: commands.Context, votes_needed: commands.Range[int, 2, None]
     ):
-        """Change the votetime for a vote, this is the number of votes required to take action on a toxic user."""
-        await self.config.guild(ctx.guild).votetime.set(votetime)
-        await ctx.send(f"Successfully set vote timeout to {votetime}.")
+        """Change the votes_needed for a vote, this is the number of votes required to take action on a toxic user."""
+        await self.config.guild(ctx.guild).votes_needed.set(votes_needed)
+        await ctx.send(f"Successfully set vote timeout to {votes_needed}.")
 
     @vs.command(name="anonymousvotes", aliases=["anonvotes"])
     async def vs_anon_votes(self, ctx: commands.Context, value: bool):
@@ -225,7 +225,7 @@ class Toxic(commands.Cog):
         Variables:
             "{target}" will be replaced with the user's name that's being voted out.
             "{votes}" will be replaced with the number of votes needed.
-            "{votetime}" will be replaced with the voting timeout.
+            "{timeout}" will be replaced with the voting timeout.
             "{action}" will be replaced with the action to take on user if the vote passes.
         """
         await self.config.guild(ctx.guild).button.label.set(label)
