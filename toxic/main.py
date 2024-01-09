@@ -135,7 +135,7 @@ class Toxic(commands.Cog):
             )
         ),
     ):
-        """Change the timeout for voteout."""
+        """Change the timeout for vote."""
         await self.config.guild(ctx.guild).timeout.set(duration.total_seconds())
         await ctx.send(
             f"Successfully changed the voting timeout to {cf.humanize_timedelta(timedelta=duration)}."
@@ -160,7 +160,7 @@ class Toxic(commands.Cog):
     async def vs_votes_needed(
         self, ctx: commands.Context, votes_needed: commands.Range[int, 2, None]
     ):
-        """Change the votes_needed for a vote, this is the number of votes required to take action on a toxic user."""
+        """Change the votes needed for punishment!"""
         await self.config.guild(ctx.guild).votes_needed.set(votes_needed)
         await ctx.send(f"Successfully set votes needed to: {votes_needed}.")
 
@@ -172,19 +172,19 @@ class Toxic(commands.Cog):
 
     @vs.command(name="ignorehierarchy", aliases=["ignorehier"])
     async def vs_ignore_hierarchy(self, ctx: commands.Context, value: bool):
-        """Change whether or not to ignore role hierarchy when users vote out other users."""
+        """Change whether or not to ignore role hierarchy."""
         await self.config.guild(ctx.guild).ignore_hierarchy.set(value)
         await ctx.send(f"Role hierarchy will {'' if value else 'not '}be ignored now.")
 
     @vs.command(name="action")
     async def vs_action(self, ctx: commands.Context, action: Literal["kick", "ban"]):
-        """Change the action to take on a voted out user."""
+        """Change the action to take on a toxic user."""
         await self.config.guild(ctx.guild).action.set(action)
         await ctx.send(f"Successfully set action to {action}.")
 
     @vs.group(name="button", invoke_without_command=True)
     async def vs_button(self, ctx: commands.Context):
-        """Change the button settings for kicking toxic user."""
+        """Change the button settings for punishing a toxic user."""
         settings: GuildSettings = await self.config.guild(ctx.guild).all()
         button_embed = discord.Embed(
             title="Toxic Player Button Settings",
