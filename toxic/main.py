@@ -112,9 +112,9 @@ class Toxic(commands.Cog):
             title="Toxic Player Settings",
             description=(
                 f"**Vote Timeout:** {cf.humanize_timedelta(seconds=settings['timeout'])} before voting ends.\n"
-                f"**Game Roles:** {cf.humanize_list(list(map(lambda x: f'<@&{x}>', settings['game_roles']))) or 'No roles set up. Admin/mod roles required to set roles.'}\n"
+                f"**Game Roles:** {cf.humanize_list(list(map(lambda x: f'<@&{x}>', settings['game_roles']))) or 'No roles set. Admin/mod roles required to set roles.'}\n"
                 f"**Votes Needed:** {settings['votes_needed']} votes required to {settings['action']} user.\n"
-                f"**Anonymous Votes:** Voters will{' not ' if settings['anon_votes'] else ' '}be announced. (Punishments will still be logged!)\n"
+                f"**Anon Votes:** Voters will{' not ' if settings['anon_votes'] else ' '}be announced. (Punishments will still be logged!)\n"
                 f"**Ignore Hierarchy:** Role hierarchy will{' ' if settings['ignore_hierarchy'] else ' not '}be ignored.\n"
                 f"**Action to take:** {settings['action']} user\n"
             ),
@@ -135,7 +135,7 @@ class Toxic(commands.Cog):
             )
         ),
     ):
-        """Change the time needed for a.he vote."""
+        """Change the time needed before the vote expires."""
         await self.config.guild(ctx.guild).timeout.set(duration.total_seconds())
         await ctx.send(
             f"Successfully changed the voting timeout to {cf.humanize_timedelta(timedelta=duration)}."
