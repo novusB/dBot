@@ -103,7 +103,7 @@ class Toxic(commands.Cog):
         await view.wait()
 
     @commands.group(
-        name="toxicsettings", aliases=["toxicset", "tset"], invoke_without_command=True
+        name="toxicsettings", aliases=["toxicset", "tset", "tsettings"], invoke_without_command=True
     )
     async def vs(self, ctx: commands.Context):
         """Change the Toxic Player Punishment Settings."""
