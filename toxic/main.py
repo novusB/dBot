@@ -52,7 +52,7 @@ class Toxic(commands.Cog):
             return await ctx.send("You cannot vote to kick yourself or the bot!")
         
         if self.bot.is_admin(user) or self.bot.is_mod(user) or self.bot.is_owner(user):
-            return await ctx.send("You cannot kick server staff!")
+            return await ctx.send("You cannot vote out server staff!")
         
         if user == ctx.guild.owner:
             return await ctx.send("You cannot vote to kick the server owner!")
