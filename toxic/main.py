@@ -51,12 +51,9 @@ class Toxic(commands.Cog):
         if user.id == ctx.author.id or user.id == self.bot.user.id:
             return await ctx.send("You cannot vote to kick yourself or the bot!")
         
-        if self.bot.is_admin(user):
-            return await ctx.send("You cannot kick server administrators!")
+        if self.bot.is_admin(user) or self.bot.is_mod(user) or self.bot.is_owner(user):
+            return await ctx.send("You cannot kick server staff!")
         
-        if self.bot.is_mod(user): 
-            return await ctx.send("You cannot kick server moderators!")
-
         if user == ctx.guild.owner:
             return await ctx.send("You cannot vote to kick the server owner!")
 
@@ -95,7 +92,7 @@ class Toxic(commands.Cog):
                 user.get_role(role) for role in settings["game_roles"]
             ):
                 return await ctx.send(
-                    "You cannot vote out this user because they don't have any of the allowed roles."
+                    "You cannot vote out this user because they don't have any of the allowed game roles."
                 )
             if not user.get_role(user_role):
                 return await ctx.send(
