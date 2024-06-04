@@ -5,5 +5,5 @@ class scrondon(commands.Cog):
         self.bot = bot
 
     @commands.command(name="scrondon")
-    async def mycom(self, ctx):
+    async def scrondon(self, ctx):
         await ctx.send("Airman Scrondon reporting for duty!")
