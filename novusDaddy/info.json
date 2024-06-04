@@ -1,0 +1,18 @@
+{
+    "author": [
+        "novusB"
+    ],
+    "description": "Daddy",
+    "disabled" : false,
+    "end_user_data_statement" : "Daddy",
+    "hidden": false,
+    "install_msg": "Thank you for installing! Use `[p]daddy` for more info.",
+    "min_bot_version" : "3.5.0",
+    "min_python_version" : [3, 10, 1],
+    "permissions" : ["manage_roles"],
+    "required_cogs" : {},
+    "requirements" : [],
+    "short": "daddy",
+    "tags" : [],
+    "type": "COG"
+}
