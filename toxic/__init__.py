@@ -1,4 +1,4 @@
-from .toxicity import Toxicity
+from .toxic import Toxicity
 
 async def setup(bot):
     """Set up the Toxicity cog."""
