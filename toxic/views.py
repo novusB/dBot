@@ -2,6 +2,7 @@ import discord
 from redbot.core import commands, modlog
 from redbot.core.bot import Red
 from typing import Optional, Tuple, Set # Added Set for self.votes
+# Removed: from .utils import GuildSettings # GuildSettings no longer explicitly imported here
 
 
 class BaseView(discord.ui.View):
@@ -53,7 +54,7 @@ class ToxicView(BaseView):
     def __init__(
         self,
         bot: Red,
-        settings: GuildSettings,
+        settings: dict, # Changed type hint from GuildSettings to dict
         invoker: discord.Member,
         target: discord.Member,
         reason: str,
@@ -62,7 +63,7 @@ class ToxicView(BaseView):
         Initializes the ToxicView.
         Args:
             bot: The Red bot instance.
-            settings: Guild settings for the toxic cog.
+            settings: Guild settings for the toxic cog (passed as a dictionary).
             invoker: The member who initiated the vote.
             target: The member who is being voted against.
             reason: The reason provided for the vote.
