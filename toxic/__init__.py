@@ -1,14 +1,9 @@
-from .toxic import Toxicity
+from .toxic import Toxic
+
+__red_end_user_data_statement__ = (
+    "This cog stores temporary data about active votes including the initiator, "
+    "target, and reason. All data is automatically deleted when votes conclude."
+)
 
 async def setup(bot):
-    """Set up the Toxicity cog."""
-    cog = Toxicity(bot)
-    await bot.add_cog(cog)
-
-async def teardown(bot):
-    """Clean up when the cog is unloaded."""
-    cog = bot.get_cog("Toxicity")
-    if cog:
-        # Clean up any running tasks
-        if hasattr(cog, 'cleanup_task') and cog.cleanup_task:
-            cog.cleanup_task.cancel()
+    await bot.add_cog(Toxic(bot))
