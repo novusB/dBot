@@ -1,0 +1,9 @@
+{
+    "name": "WeatherCog",
+    "author": ["YourNameHere"],
+    "description": "A custom cog to fetch current weather conditions by ZIP/postal code using OpenWeatherMap.",
+    "tags": ["utility", "weather", "information"],
+    "end_user_diagnose_enabled": false,
+    "min_bot_version": "3.0.0",
+    "hidden": false
+}
