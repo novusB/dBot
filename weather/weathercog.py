@@ -7,7 +7,7 @@ from datetime import datetime, timedelta # For handling dates and times
 
 class WeatherCog(commands.Cog):
     """
-    A custom cog for Red Discord Bot to fetch current weather by ZIP code.
+    A custom cog for Red Discord Bot to fetch current weather by ZIP code and air quality.
     This cog uses Red's shared API tokens for enhanced security.
     """
 
@@ -107,7 +107,7 @@ class WeatherCog(commands.Cog):
 
     @commands.command()
     @commands.guild_only()
-    @commands.cooldown(1, 5, commands.BucketType.user) # Cooldown to prevent API spam
+    @commands.cooldown(1, 60, commands.BucketType.user) # Cooldown changed to 60 seconds
     async def weather(self, ctx, zip_code: str, country_code: str = "us", days: int = None):
         """
         Gets the current weather conditions or a 1-day forecast for a given ZIP code.
@@ -264,3 +264,140 @@ class WeatherCog(commands.Cog):
             except Exception as e:
                 await ctx.send(f"An error occurred: {e}")
                 self.bot.logger.error(f"WeatherCog error (current weather): {e}")
+
+    @commands.command()
+    @commands.guild_only()
+    @commands.cooldown(1, 60, commands.BucketType.user) # Cooldown changed to 60 seconds
+    async def aqi(self, ctx, zip_code: str, country_code: str = "us"):
+        """
+        Gets the current Air Quality Index (AQI) and pollutant concentrations for a given ZIP code.
+
+        Usage:
+        [p]aqi <zip_code> [country_code]
+
+        Examples:
+        [p]aqi 90210
+        [p]aqi 78701 us
+        [p]aqi SW1A0AA gb
+        """
+        tokens = await self.bot.get_shared_api_tokens("openweathermap")
+        api_key = tokens.get("api_key")
+
+        if not api_key:
+            return await ctx.send(
+                f"The OpenWeatherMap API key is not set. Please set it using Red's shared API tokens:\n"
+                f"`{ctx.clean_prefix}set api openweathermap api_key <your_api_key>`."
+            )
+
+        if not zip_code.isalnum():
+            return await ctx.send("Please provide a valid ZIP/postal code.")
+
+        # --- Step 1: Get Latitude and Longitude from ZIP code using Geocoding API ---
+        geo_url = "http://api.openweathermap.org/geo/1.0/zip"
+        geo_params = {
+            "zip": f"{zip_code},{country_code}",
+            "appid": api_key
+        }
+
+        lat, lon, city_name = None, None, None
+
+        try:
+            async with self.session.get(geo_url, params=geo_params) as geo_response:
+                if geo_response.status == 200:
+                    geo_data = await geo_response.json()
+                    lat = geo_data.get("lat")
+                    lon = geo_data.get("lon")
+                    city_name = geo_data.get("name")
+                    if not lat or not lon or not city_name:
+                        return await ctx.send("Could not find coordinates for the provided ZIP/postal code and country. Please try again.")
+                elif geo_response.status == 401:
+                    return await ctx.send(f"Error: Invalid OpenWeatherMap API key. Please check your key set with `{ctx.clean_prefix}set api openweathermap api_key <your_key>`.")
+                elif geo_response.status == 404:
+                    return await ctx.send("Error: ZIP/postal code or country not found for geocoding. Please check your input.")
+                else:
+                    return await ctx.send(f"An unexpected error occurred with the geocoding API (Status: {geo_response.status}).")
+        except aiohttp.ClientConnectorError:
+            return await ctx.send("Could not connect to the geocoding API. Please try again later.")
+        except asyncio.TimeoutError:
+            return await ctx.send("The geocoding API request timed out. Please try again later.")
+        except Exception as e:
+            self.bot.logger.error(f"WeatherCog AQI geocoding error: {e}")
+            return await ctx.send(f"An error occurred during geocoding for AQI: {e}")
+
+        # --- Step 2: Get Air Quality Data using Lat/Lon ---
+        aq_url = "http://api.openweathermap.org/data/2.5/air_pollution"
+        aq_params = {
+            "lat": lat,
+            "lon": lon,
+            "appid": api_key
+        }
+
+        # Mapping AQI value to qualitative description
+        aqi_descriptions = {
+            1: "Good",
+            2: "Fair",
+            3: "Moderate",
+            4: "Poor",
+            5: "Very Poor"
+        }
+
+        try:
+            async with self.session.get(aq_url, params=aq_params) as aq_response:
+                if aq_response.status == 200:
+                    aq_data = await aq_response.json()
+                    
+                    # OpenWeatherMap's Air Pollution API returns a 'list' where the first item is current data
+                    if not aq_data.get("list"):
+                        return await ctx.send(f"No air quality data available for {city_name} at this time.")
+
+                    current_aq = aq_data["list"][0]
+                    aqi_value = current_aq["main"]["aqi"]
+                    components = current_aq["components"]
+                    
+                    aqi_text = aqi_descriptions.get(aqi_value, "Unknown")
+                    
+                    embed = discord.Embed(
+                        title=f"Air Quality in {city_name}",
+                        description=f"**AQI: {aqi_value} ({aqi_text})**",
+                        color=discord.Color.dark_purple() # Different color for AQI
+                    )
+                    embed.set_footer(text="Powered by OpenWeatherMap Air Pollution API")
+
+                    # Add pollutant concentrations
+                    pollutants = {
+                        "CO": "Carbon Monoxide",
+                        "NO": "Nitrogen Monoxide",
+                        "NO2": "Nitrogen Dioxide",
+                        "O3": "Ozone",
+                        "SO2": "Sulphur Dioxide",
+                        "PM2_5": "Fine Particulates (PM2.5)",
+                        "PM10": "Coarse Particulates (PM10)",
+                        "NH3": "Ammonia"
+                    }
+                    
+                    for abbr, full_name in pollutants.items():
+                        # OpenWeatherMap uses 'pm2_5' but our dict has 'PM2_5', so convert
+                        component_key = abbr.lower() if abbr in ["PM2_5", "PM10"] else abbr.lower() 
+                        # Special handling for PM2.5 and PM10 to match API response keys if needed
+                        if abbr == "PM2_5": component_key = "pm2_5"
+                        if abbr == "PM10": component_key = "pm10"
+
+                        value = components.get(component_key)
+                        if value is not None:
+                            embed.add_field(name=full_name, value=f"{value:.2f} μg/m³", inline=True)
+
+                    await ctx.send(embed=embed)
+
+                elif aq_response.status == 401:
+                    await ctx.send(f"Error: Invalid OpenWeatherMap API key. Please check your key set with `{ctx.clean_prefix}set api openweathermap api_key <your_key>`.")
+                elif aq_response.status == 404: # This might happen if no AQ data for precise lat/lon
+                    await ctx.send(f"No air quality data found for {city_name}. It's possible there are no monitoring stations in this specific area.")
+                else:
+                    await ctx.send(f"An unexpected error occurred with the air quality API (Status: {aq_response.status}).")
+        except aiohttp.ClientConnectorError:
+            await ctx.send("Could not connect to the air quality API. Please try again later.")
+        except asyncio.TimeoutError:
+            await ctx.send("The air quality API request timed out. Please try again later.")
+        except Exception as e:
+            self.bot.logger.error(f"WeatherCog AQI lookup error: {e}")
+            await ctx.send(f"An error occurred during AQI lookup: {e}")
