@@ -264,70 +264,392 @@ class Toxic(commands.Cog):
     @checks.admin_or_permissions(manage_guild=True)
     async def config(self, ctx):
         """Configure the toxic vote system."""
-        pass
+        if ctx.invoked_subcommand is None:
+            await ctx.send_help(ctx.command)
 
     @config.command(name="duration")
-    async def set_duration(self, ctx, seconds: int):
-        """Set vote duration (30-3600 seconds)."""
-        if not 30 <= seconds <= 3600:
-            return await ctx.send("❌ Duration must be between 30 and 3600 seconds.")
+    @checks.admin_or_permissions(manage_guild=True)
+    async def set_duration(self, ctx, time: str):
+        """
+        Set vote duration. 
+        
+        Examples:
+        - `30s` or `30` = 30 seconds
+        - `5m` = 5 minutes  
+        - `1h` = 1 hour
+        - `90s` = 1 minute 30 seconds
+        
+        Range: 30 seconds to 24 hours
+        """
+        # Parse time string
+        time = time.lower().strip()
+        
+        # Handle different time formats
+        if time.endswith('s'):
+            seconds = int(time[:-1])
+        elif time.endswith('m'):
+            seconds = int(time[:-1]) * 60
+        elif time.endswith('h'):
+            seconds = int(time[:-1]) * 3600
+        elif time.isdigit():
+            seconds = int(time)
+        else:
+            return await ctx.send("❌ Invalid time format. Use: `30s`, `5m`, `1h`, or just `300`")
+        
+        # Validate range
+        if not 30 <= seconds <= 86400:  # 30 seconds to 24 hours
+            return await ctx.send("❌ Duration must be between 30 seconds and 24 hours.")
         
         await self.config.guild(ctx.guild).vote_duration.set(seconds)
-        await ctx.send(f"✅ Vote duration set to {humanize_timedelta(seconds=seconds)}.")
+        await ctx.send(f"✅ Vote duration set to **{humanize_timedelta(seconds=seconds)}**.")
 
-    @config.command(name="votes")
+    @config.command(name="votes", aliases=["threshold"])
+    @checks.admin_or_permissions(manage_guild=True)
     async def set_votes_needed(self, ctx, count: int):
-        """Set votes needed to pass (1-50)."""
+        """
+        Set how many YES votes are needed for a vote to pass.
+        
+        Range: 1-50 votes
+        Recommended: 3-5 for small servers, 5-10 for large servers
+        """
         if not 1 <= count <= 50:
             return await ctx.send("❌ Vote count must be between 1 and 50.")
         
         await self.config.guild(ctx.guild).votes_needed.set(count)
-        await ctx.send(f"✅ Votes needed set to {count}.")
+        
+        # Provide recommendations based on server size
+        member_count = ctx.guild.member_count
+        if member_count < 50 and count > 5:
+            recommendation = "💡 **Tip:** For smaller servers, 3-5 votes usually work better."
+        elif member_count > 200 and count < 5:
+            recommendation = "💡 **Tip:** For larger servers, consider 5-10 votes to prevent abuse."
+        else:
+            recommendation = ""
+        
+        await ctx.send(f"✅ Votes needed set to **{count}**.\n{recommendation}")
 
-    @config.command(name="mode")
+    @config.command(name="mode", aliases=["action", "punishment"])
+    @checks.admin_or_permissions(manage_guild=True)
     async def set_mode(self, ctx, mode: str):
-        """Set action mode: 'kick' or 'ban'."""
+        """
+        Set the punishment type: 'kick' or 'ban'
+        
+        - **kick**: Removes user from server (they can rejoin)
+        - **ban**: Permanently bans user from server
+        
+        ⚠️ **Warning:** Ban mode is more severe and permanent!
+        """
         mode = mode.lower()
         if mode not in ["kick", "ban"]:
-            return await ctx.send("❌ Mode must be 'kick' or 'ban'.")
+            return await ctx.send("❌ Mode must be either `kick` or `ban`.")
+        
+        # Confirmation for ban mode
+        if mode == "ban":
+            embed = discord.Embed(
+                title="⚠️ Confirm Ban Mode",
+                description="You're about to enable **BAN MODE**.\n\n"
+                           "This means successful votes will **permanently ban** users from the server.\n"
+                           "Are you sure you want to continue?",
+                color=discord.Color.red()
+            )
+            
+            confirm_msg = await ctx.send(embed=embed)
+            await confirm_msg.add_reaction("✅")
+            await confirm_msg.add_reaction("❌")
+            
+            def check(reaction, user):
+                return (user == ctx.author and 
+                       str(reaction.emoji) in ["✅", "❌"] and 
+                       reaction.message.id == confirm_msg.id)
+            
+            try:
+                reaction, user = await self.bot.wait_for('reaction_add', timeout=30.0, check=check)
+                if str(reaction.emoji) == "❌":
+                    return await ctx.send("❌ Ban mode setup cancelled.")
+            except asyncio.TimeoutError:
+                return await ctx.send("❌ Confirmation timed out. Ban mode not enabled.")
         
         await self.config.guild(ctx.guild).ban_mode.set(mode == "ban")
-        await ctx.send(f"✅ Vote mode set to {mode}.")
-
-    @config.command(name="toggle")
-    async def toggle_system(self, ctx):
-        """Enable/disable the vote system."""
-        current = await self.config.guild(ctx.guild).enabled()
-        await self.config.guild(ctx.guild).enabled.set(not current)
-        status = "enabled" if not current else "disabled"
-        await ctx.send(f"✅ Toxic vote system {status}.")
-
-    @config.command(name="logchannel")
-    async def set_log_channel(self, ctx, channel: Optional[discord.TextChannel] = None):
-        """Set log channel for vote results."""
-        if channel is None:
-            await self.config.guild(ctx.guild).log_channel.set(None)
-            await ctx.send("✅ Log channel disabled.")
-        else:
-            await self.config.guild(ctx.guild).log_channel.set(channel.id)
-            await ctx.send(f"✅ Log channel set to {channel.mention}.")
-
-    @config.command(name="view")
-    async def view_config(self, ctx):
-        """View current configuration."""
-        config = await self.config.guild(ctx.guild).all()
         
-        embed = discord.Embed(title="🔧 Toxic Vote Configuration", color=discord.Color.blue())
-        embed.add_field(name="Enabled", value="✅ Yes" if config["enabled"] else "❌ No", inline=True)
-        embed.add_field(name="Mode", value="Ban" if config["ban_mode"] else "Kick", inline=True)
-        embed.add_field(name="Duration", value=humanize_timedelta(seconds=config["vote_duration"]), inline=True)
-        embed.add_field(name="Votes Needed", value=str(config["votes_needed"]), inline=True)
+        embed = discord.Embed(
+            title="✅ Vote Mode Updated",
+            description=f"Vote punishment set to: **{mode.upper()}**",
+            color=discord.Color.green() if mode == "kick" else discord.Color.red()
+        )
         
-        log_channel = ctx.guild.get_channel(config["log_channel"]) if config["log_channel"] else None
-        embed.add_field(name="Log Channel", value=log_channel.mention if log_channel else "None", inline=True)
-        embed.add_field(name="Emojis", value=" ".join(config["vote_emojis"]), inline=True)
+        if mode == "ban":
+            embed.add_field(
+                name="⚠️ Important",
+                value="Successful votes will now **permanently ban** users!",
+                inline=False
+            )
         
         await ctx.send(embed=embed)
+
+    @config.command(name="toggle", aliases=["enable", "disable"])
+    @checks.admin_or_permissions(manage_guild=True)
+    async def toggle_system(self, ctx, state: str = None):
+        """
+        Enable or disable the toxic vote system.
+        
+        Usage: 
+        - `[p]toxic config toggle` - Toggle current state
+        - `[p]toxic config toggle on` - Force enable
+        - `[p]toxic config toggle off` - Force disable
+        """
+        current = await self.config.guild(ctx.guild).enabled()
+        
+        if state is None:
+            new_state = not current
+        elif state.lower() in ["on", "enable", "enabled", "true", "yes"]:
+            new_state = True
+        elif state.lower() in ["off", "disable", "disabled", "false", "no"]:
+            new_state = False
+        else:
+            return await ctx.send("❌ Invalid state. Use `on`, `off`, or leave empty to toggle.")
+        
+        await self.config.guild(ctx.guild).enabled.set(new_state)
+        
+        status = "**ENABLED** ✅" if new_state else "**DISABLED** ❌"
+        color = discord.Color.green() if new_state else discord.Color.red()
+        
+        embed = discord.Embed(
+            title="🔧 System Status Updated",
+            description=f"Toxic vote system is now {status}",
+            color=color
+        )
+        
+        if new_state:
+            embed.add_field(
+                name="Next Steps",
+                value="• Users can now start votes with `[p]toxic vote @user reason`\n"
+                      "• Check settings with `[p]toxic config view`",
+                inline=False
+            )
+        
+        await ctx.send(embed=embed)
+
+    @config.command(name="logchannel", aliases=["logs"])
+    @checks.admin_or_permissions(manage_guild=True)
+    async def set_log_channel(self, ctx, channel: Optional[discord.TextChannel] = None):
+        """
+        Set the channel where vote results are logged.
+        
+        Usage:
+        - `[p]toxic config logchannel #channel` - Set log channel
+        - `[p]toxic config logchannel` - Disable logging
+        """
+        if channel is None:
+            await self.config.guild(ctx.guild).log_channel.set(None)
+            await ctx.send("✅ Vote result logging **disabled**.")
+        else:
+            # Check if bot can send messages in the channel
+            if not channel.permissions_for(ctx.guild.me).send_messages:
+                return await ctx.send(f"❌ I don't have permission to send messages in {channel.mention}!")
+            
+            await self.config.guild(ctx.guild).log_channel.set(channel.id)
+            
+            # Send test message
+            embed = discord.Embed(
+                title="📋 Vote Logging Enabled",
+                description="This channel will now receive vote result logs.",
+                color=discord.Color.blue()
+            )
+            await channel.send(embed=embed)
+            await ctx.send(f"✅ Vote results will be logged to {channel.mention}.")
+
+    @config.command(name="preset")
+    @checks.admin_or_permissions(manage_guild=True)
+    async def config_preset(self, ctx, preset_name: str):
+        """
+        Apply a configuration preset.
+        
+        Available presets:
+        - `strict` - Short duration, high vote threshold, ban mode
+        - `moderate` - Balanced settings for most servers  
+        - `lenient` - Longer duration, lower threshold, kick only
+        - `small` - Optimized for small servers (<50 members)
+        - `large` - Optimized for large servers (>200 members)
+        """
+        presets = {
+            "strict": {
+                "vote_duration": 180,  # 3 minutes
+                "votes_needed": 5,
+                "ban_mode": True,
+                "description": "Short votes, high threshold, permanent bans"
+            },
+            "moderate": {
+                "vote_duration": 300,  # 5 minutes
+                "votes_needed": 3,
+                "ban_mode": False,
+                "description": "Balanced settings for most servers"
+            },
+            "lenient": {
+                "vote_duration": 600,  # 10 minutes
+                "votes_needed": 2,
+                "ban_mode": False,
+                "description": "Longer votes, lower threshold, kicks only"
+            },
+            "small": {
+                "vote_duration": 300,  # 5 minutes
+                "votes_needed": 2,
+                "ban_mode": False,
+                "description": "Optimized for small servers"
+            },
+            "large": {
+                "vote_duration": 240,  # 4 minutes
+                "votes_needed": 7,
+                "ban_mode": False,
+                "description": "Optimized for large servers"
+            }
+        }
+        
+        preset_name = preset_name.lower()
+        if preset_name not in presets:
+            preset_list = "\n".join([f"• `{name}` - {data['description']}" for name, data in presets.items()])
+            return await ctx.send(f"❌ Invalid preset. Available presets:\n{preset_list}")
+        
+        preset = presets[preset_name]
+        
+        # Confirmation
+        embed = discord.Embed(
+            title=f"🔧 Apply '{preset_name.title()}' Preset?",
+            description=f"**{preset['description']}**\n\n"
+                       f"**Duration:** {humanize_timedelta(seconds=preset['vote_duration'])}\n"
+                       f"**Votes needed:** {preset['votes_needed']}\n"
+                       f"**Mode:** {'Ban' if preset['ban_mode'] else 'Kick'}",
+            color=discord.Color.orange()
+        )
+        
+        confirm_msg = await ctx.send(embed=embed)
+        await confirm_msg.add_reaction("✅")
+        await confirm_msg.add_reaction("❌")
+        
+        def check(reaction, user):
+            return (user == ctx.author and 
+                   str(reaction.emoji) in ["✅", "❌"] and 
+                   reaction.message.id == confirm_msg.id)
+        
+        try:
+            reaction, user = await self.bot.wait_for('reaction_add', timeout=30.0, check=check)
+            if str(reaction.emoji) == "❌":
+                return await ctx.send("❌ Preset application cancelled.")
+        except asyncio.TimeoutError:
+            return await ctx.send("❌ Confirmation timed out.")
+        
+        # Apply preset
+        guild_config = self.config.guild(ctx.guild)
+        await guild_config.vote_duration.set(preset["vote_duration"])
+        await guild_config.votes_needed.set(preset["votes_needed"])
+        await guild_config.ban_mode.set(preset["ban_mode"])
+        
+        embed = discord.Embed(
+            title="✅ Preset Applied Successfully",
+            description=f"**'{preset_name.title()}'** configuration is now active!",
+            color=discord.Color.green()
+        )
+        
+        await ctx.send(embed=embed)
+
+    @config.command(name="view", aliases=["show", "status"])
+    async def view_config(self, ctx):
+        """View current configuration settings."""
+        config = await self.config.guild(ctx.guild).all()
+        
+        embed = discord.Embed(
+            title="🔧 Toxic Vote System Configuration",
+            color=discord.Color.blue() if config["enabled"] else discord.Color.red(),
+            timestamp=datetime.utcnow()
+        )
+        
+        # Status
+        status = "🟢 **ENABLED**" if config["enabled"] else "🔴 **DISABLED**"
+        embed.add_field(name="System Status", value=status, inline=True)
+        
+        # Mode with warning for ban
+        mode_text = "🔨 **KICK**" if not config["ban_mode"] else "⚠️ **BAN**"
+        embed.add_field(name="Punishment Mode", value=mode_text, inline=True)
+        
+        # Duration
+        duration_text = f"⏱️ **{humanize_timedelta(seconds=config['vote_duration'])}**"
+        embed.add_field(name="Vote Duration", value=duration_text, inline=True)
+        
+        # Votes needed
+        votes_text = f"🗳️ **{config['votes_needed']} votes**"
+        embed.add_field(name="Votes Required", value=votes_text, inline=True)
+        
+        # Log channel
+        log_channel = ctx.guild.get_channel(config["log_channel"]) if config["log_channel"] else None
+        log_text = f"📋 {log_channel.mention}" if log_channel else "📋 **Disabled**"
+        embed.add_field(name="Log Channel", value=log_text, inline=True)
+        
+        # Vote emojis
+        emoji_text = f"📊 {' '.join(config['vote_emojis'])}"
+        embed.add_field(name="Vote Emojis", value=emoji_text, inline=True)
+        
+        # Add recommendations
+        member_count = ctx.guild.member_count
+        recommendations = []
+        
+        if member_count < 50 and config["votes_needed"] > 5:
+            recommendations.append("• Consider lowering vote threshold for smaller server")
+        elif member_count > 200 and config["votes_needed"] < 5:
+            recommendations.append("• Consider raising vote threshold for larger server")
+            
+        if config["ban_mode"]:
+            recommendations.append("• ⚠️ Ban mode is enabled - votes will permanently ban users!")
+            
+        if recommendations:
+            embed.add_field(
+                name="💡 Recommendations",
+                value="\n".join(recommendations),
+                inline=False
+            )
+        
+        # Quick setup help
+        embed.add_field(
+            name="🚀 Quick Setup",
+            value="Use `[p]toxic config preset moderate` for balanced settings\n"
+                  "Or `[p]toxic config preset small/large` based on server size",
+            inline=False
+        )
+        
+        await ctx.send(embed=embed)
+
+    @config.command(name="reset")
+    @checks.admin_or_permissions(manage_guild=True)
+    async def reset_config(self, ctx):
+        """Reset all configuration to default values."""
+        embed = discord.Embed(
+            title="⚠️ Reset Configuration?",
+            description="This will reset **ALL** toxic vote settings to default values:\n\n"
+                       "• Duration: 5 minutes\n"
+                       "• Votes needed: 3\n"
+                       "• Mode: Kick\n"
+                       "• System: Enabled\n"
+                       "• Log channel: Disabled",
+            color=discord.Color.red()
+        )
+        
+        confirm_msg = await ctx.send(embed=embed)
+        await confirm_msg.add_reaction("✅")
+        await confirm_msg.add_reaction("❌")
+        
+        def check(reaction, user):
+            return (user == ctx.author and 
+                   str(reaction.emoji) in ["✅", "❌"] and 
+                   reaction.message.id == confirm_msg.id)
+        
+        try:
+            reaction, user = await self.bot.wait_for('reaction_add', timeout=30.0, check=check)
+            if str(reaction.emoji) == "❌":
+                return await ctx.send("❌ Configuration reset cancelled.")
+        except asyncio.TimeoutError:
+            return await ctx.send("❌ Confirmation timed out.")
+        
+        # Reset to defaults
+        await self.config.guild(ctx.guild).clear()
+        await ctx.send("✅ Configuration reset to default values!")
 
     @commands.Cog.listener()
     async def on_reaction_add(self, reaction: discord.Reaction, user: Union[discord.Member, discord.User]):
