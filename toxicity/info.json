@@ -1,0 +1,9 @@
+{
+    "name": "Toxicity",
+    "author": ["novusB"],
+    "description": "Allows community members to vote to kick or ban users from the server based on configured thresholds due to toxicity.", # Changed description
+    "tags": ["moderation", "vote", "kick", "ban", "community moderation", "modlog", "toxicity"], # Added toxicity tag
+    "end_user_diagnose_enabled": false,
+    "min_bot_version": "3.0.0",
+    "hidden": false
+}
