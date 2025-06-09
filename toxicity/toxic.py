@@ -7,8 +7,10 @@ from redbot.core.utils.chat_formatting import humanize_timedelta
 from redbot.core.utils.predicates import MessagePredicate
 from redbot.core.bot import Red
 from .utils import format_time_remaining, has_matching_roles
+# We're not actually using views yet, but we'll import it to prevent the error
+from . import views
 
-class Toxic(commands.Cog):
+class Toxicity(commands.Cog):
     """
     Vote-based kick/ban system for server members with matching roles.
     """
@@ -43,7 +45,7 @@ class Toxic(commands.Cog):
     async def _cleanup_expired_votes(self):
         """Task to clean up expired votes."""
         await self.bot.wait_until_ready()
-        while self == self.bot.get_cog("Toxic"):
+        while self == self.bot.get_cog("Toxicity"):
             try:
                 for guild_id in list(self.active_votes.keys()):
                     for member_id in list(self.active_votes.get(guild_id, {}).keys()):
@@ -89,15 +91,7 @@ class Toxic(commands.Cog):
         if member.top_role >= ctx.author.top_role and ctx.author != ctx.guild.owner:
             return await ctx.send("❌ You cannot vote to kick someone with equal or higher roles!")
         
-        # Replace this:
         # Check if roles match exactly (excluding @everyone)
-        # author_roles = set(role.id for role in ctx.author.roles if role != ctx.guild.default_role)
-        # member_roles = set(role.id for role in member.roles if role != ctx.guild.default_role)
-
-        # if author_roles != member_roles and ctx.author != ctx.guild.owner and not ctx.author.guild_permissions.kick_members:
-        #     return await ctx.send("❌ You can only vote to kick members with the exact same roles as you!")
-
-        # With this:
         if not has_matching_roles(ctx.author, member) and ctx.author != ctx.guild.owner and not ctx.author.guild_permissions.kick_members:
             return await ctx.send("❌ You can only vote to kick members with the exact same roles as you!")
         
@@ -122,9 +116,6 @@ class Toxic(commands.Cog):
                        f"**Reason:** {reason}\n"
                        f"**Action:** {action.title()}\n\n"
                        f"**Votes needed:** {votes_needed}\n"
-                       # Replace this line:
-                       # f"**Time remaining:** {humanize_timedelta(seconds=vote_duration)}",
-                       # With this:
                        f"**Time remaining:** {format_time_remaining(vote_duration)}",
             color=discord.Color.orange(),
             timestamp=datetime.utcnow()

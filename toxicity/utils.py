@@ -1,5 +1,5 @@
 """
-Utility functions for the Toxic cog.
+Utility functions for the Toxicity cog.
 """
 from datetime import timedelta
 from typing import Union
