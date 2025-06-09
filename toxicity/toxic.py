@@ -6,6 +6,7 @@ from redbot.core import commands, Config, checks
 from redbot.core.utils.chat_formatting import humanize_timedelta
 from redbot.core.utils.predicates import MessagePredicate
 from redbot.core.bot import Red
+from .utils import format_time_remaining, has_matching_roles
 
 class Toxic(commands.Cog):
     """
@@ -88,11 +89,16 @@ class Toxic(commands.Cog):
         if member.top_role >= ctx.author.top_role and ctx.author != ctx.guild.owner:
             return await ctx.send("❌ You cannot vote to kick someone with equal or higher roles!")
         
+        # Replace this:
         # Check if roles match exactly (excluding @everyone)
-        author_roles = set(role.id for role in ctx.author.roles if role != ctx.guild.default_role)
-        member_roles = set(role.id for role in member.roles if role != ctx.guild.default_role)
-        
-        if author_roles != member_roles and ctx.author != ctx.guild.owner and not ctx.author.guild_permissions.kick_members:
+        # author_roles = set(role.id for role in ctx.author.roles if role != ctx.guild.default_role)
+        # member_roles = set(role.id for role in member.roles if role != ctx.guild.default_role)
+
+        # if author_roles != member_roles and ctx.author != ctx.guild.owner and not ctx.author.guild_permissions.kick_members:
+        #     return await ctx.send("❌ You can only vote to kick members with the exact same roles as you!")
+
+        # With this:
+        if not has_matching_roles(ctx.author, member) and ctx.author != ctx.guild.owner and not ctx.author.guild_permissions.kick_members:
             return await ctx.send("❌ You can only vote to kick members with the exact same roles as you!")
         
         # Check if there's already an active vote for this member
@@ -116,7 +122,10 @@ class Toxic(commands.Cog):
                        f"**Reason:** {reason}\n"
                        f"**Action:** {action.title()}\n\n"
                        f"**Votes needed:** {votes_needed}\n"
-                       f"**Time remaining:** {humanize_timedelta(seconds=vote_duration)}",
+                       # Replace this line:
+                       # f"**Time remaining:** {humanize_timedelta(seconds=vote_duration)}",
+                       # With this:
+                       f"**Time remaining:** {format_time_remaining(vote_duration)}",
             color=discord.Color.orange(),
             timestamp=datetime.utcnow()
         )
