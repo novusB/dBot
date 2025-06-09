@@ -97,7 +97,7 @@ class WeatherCog(commands.Cog):
                     "Please check your Discord privacy settings to allow DMs from this bot."
                 )
             except Exception as e:
-                await ctx.send(f"An unexpected error occurred while sending the API key to your DMs: {e}")
+                await ctx.send(f"An unexpected error occurred while sending the API key to your Dbot DMs: {e}")
                 self.bot.logger.error(f"WeatherCog viewapikey error: {e}")
         else:
             await ctx.send(
@@ -110,7 +110,7 @@ class WeatherCog(commands.Cog):
     @commands.cooldown(1, 5, commands.BucketType.user) # Cooldown to prevent API spam
     async def weather(self, ctx, zip_code: str, country_code: str = "us", days: int = None):
         """
-        Gets the current weather conditions or a daily forecast for a given ZIP code.
+        Gets the current weather conditions or a 1-day forecast for a given ZIP code.
 
         Usage:
         [p]weather <zip_code> [country_code]
@@ -119,16 +119,19 @@ class WeatherCog(commands.Cog):
         To get the current weather:
         [p]weather <zip_code>
         [p]weather <zip_code> <country_code>
+        (If you provide a number other than '1' for days_for_forecast,
+         it will default to showing the current weather.)
 
-        To get a daily forecast (up to 5 days):
-        [p]weather <zip_code> <days_for_forecast>
-        [p]weather <zip_code> <country_code> <days_for_forecast>
+        To get a 1-day forecast:
+        [p]weather <zip_code> 1
+        [p]weather <zip_code> <country_code> 1
 
         Examples:
         [p]weather 90210                 - Current weather for Beverly Hills, USA
         [p]weather 78701 us             - Current weather for Austin, Texas, USA
-        [p]weather SW1A0AA gb 3         - 3-day forecast for London, UK (max 5 days)
-        [p]weather 90210 5              - 5-day forecast for Beverly Hills, USA
+        [p]weather SW1A0AA gb 1         - 1-day forecast for London, UK
+        [p]weather 90210 1              - 1-day forecast for Beverly Hills, USA
+        [p]weather 78701 7              - Will show current weather for Austin, Texas, USA
         """
         # Retrieve the API key from Red's shared API tokens
         tokens = await self.bot.get_shared_api_tokens("openweathermap")
@@ -147,7 +150,79 @@ class WeatherCog(commands.Cog):
         temp_unit = "°F" if units == "imperial" else "°C"
         speed_unit = "mph" if units == "imperial" else "m/s"
 
-        if days is None: # Fetch current weather
+        # If days is 1, fetch 1-day forecast; otherwise, fetch current weather
+        if days == 1: # Fetch 1-day forecast
+            base_url = "https://api.openweathermap.org/data/2.5/forecast"
+            params = {
+                "zip": f"{zip_code},{country_code}",
+                "appid": api_key,
+                "units": units
+            }
+
+            try:
+                async with self.session.get(base_url, params=params) as response:
+                    if response.status == 200:
+                        data = await response.json()
+                        city_name = data["city"]["name"]
+                        
+                        embed = discord.Embed(
+                            title=f"Weather Forecast for {city_name} (1 Day)",
+                            color=discord.Color.green() # Different color for forecast
+                        )
+                        embed.set_footer(text="Powered by OpenWeatherMap | Daily summaries from 3-hour step forecast")
+
+                        # Process the 5-day / 3-hour forecast data to get daily summaries
+                        forecast_list = data["list"]
+                        
+                        # Dictionary to hold one entry per day
+                        daily_forecasts = {}
+
+                        for entry in forecast_list:
+                            dt_object = datetime.fromtimestamp(entry["dt"])
+                            # Get the date part (YYYY-MM-DD)
+                            date_str = dt_object.strftime("%Y-%m-%d")
+
+                            if date_str not in daily_forecasts:
+                                daily_forecasts[date_str] = {
+                                    "temp_min": entry["main"]["temp_min"],
+                                    "temp_max": entry["main"]["temp_max"],
+                                    "description": entry["weather"][0]["description"].capitalize(),
+                                    "icon": entry["weather"][0]["icon"],
+                                    "date": dt_object.strftime("%a, %b %d") # E.g., Mon, Jun 09
+                                }
+                            else:
+                                daily_forecasts[date_str]["temp_min"] = min(daily_forecasts[date_str]["temp_min"], entry["main"]["temp_min"])
+                                daily_forecasts[date_str]["temp_max"] = max(daily_forecasts[date_str]["temp_max"], entry["main"]["temp_max"])
+
+                        # Add fields for only the first day
+                        first_day_key = sorted(daily_forecasts.keys())[0]
+                        forecast = daily_forecasts[first_day_key]
+                        embed.add_field(
+                            name=forecast["date"],
+                            value=(
+                                f"Temp: {forecast['temp_min']:.0f}{temp_unit} - {forecast['temp_max']:.0f}{temp_unit}\n"
+                                f"Condition: {forecast['description']}"
+                            ),
+                            inline=False
+                        )
+                            
+                        await ctx.send(embed=embed)
+
+                    elif response.status == 401:
+                        await ctx.send(f"Error: Invalid OpenWeatherMap API key. Please check your key set with `{ctx.clean_prefix}set api openweathermap api_key <your_key>`.")
+                    elif response.status == 404:
+                        await ctx.send("Error: ZIP/postal code or country not found for forecast. Please check your input.")
+                    else:
+                        await ctx.send(f"An unexpected error occurred with the weather API (Status: {response.status}).")
+            except aiohttp.ClientConnectorError:
+                await ctx.send("Could not connect to the weather API for forecast. Please try again later.")
+            except asyncio.TimeoutError:
+                await ctx.send("The weather API forecast request timed out. Please try again later.")
+            except Exception as e:
+                await ctx.send(f"An error occurred during forecast lookup: {e}")
+                self.bot.logger.error(f"WeatherCog error (forecast): {e}")
+
+        else: # Fetch current weather (if days is None or any number other than 1)
             base_url = "https://api.openweathermap.org/data/2.5/weather"
             params = {
                 "zip": f"{zip_code},{country_code}",
@@ -189,85 +264,3 @@ class WeatherCog(commands.Cog):
             except Exception as e:
                 await ctx.send(f"An error occurred: {e}")
                 self.bot.logger.error(f"WeatherCog error (current weather): {e}")
-
-        else: # Fetch forecast weather
-            if not 1 <= days <= 5: # OpenWeatherMap free tier offers 5-day / 3-hour forecast
-                return await ctx.send("Forecast is limited to a maximum of 5 days with the current API plan.")
-
-            base_url = "https://api.openweathermap.org/data/2.5/forecast"
-            params = {
-                "zip": f"{zip_code},{country_code}",
-                "appid": api_key,
-                "units": units
-            }
-
-            try:
-                async with self.session.get(base_url, params=params) as response:
-                    if response.status == 200:
-                        data = await response.json()
-                        city_name = data["city"]["name"]
-                        
-                        embed = discord.Embed(
-                            title=f"Weather Forecast for {city_name} ({days} Days)",
-                            color=discord.Color.green() # Different color for forecast
-                        )
-                        embed.set_footer(text="Powered by OpenWeatherMap | Daily summaries from 3-hour step forecast")
-
-                        # Process the 5-day / 3-hour forecast data to get daily summaries
-                        forecast_list = data["list"]
-                        
-                        # Dictionary to hold one entry per day
-                        daily_forecasts = {}
-
-                        for entry in forecast_list:
-                            dt_object = datetime.fromtimestamp(entry["dt"])
-                            # Get the date part (YYYY-MM-DD)
-                            date_str = dt_object.strftime("%Y-%m-%d")
-
-                            # Only add the first entry for each day to represent the daily summary
-                            # Or you could collect all entries for a day and calculate avg/min/max
-                            if date_str not in daily_forecasts:
-                                daily_forecasts[date_str] = {
-                                    "temp_min": entry["main"]["temp_min"],
-                                    "temp_max": entry["main"]["temp_max"],
-                                    "description": entry["weather"][0]["description"].capitalize(),
-                                    "icon": entry["weather"][0]["icon"],
-                                    "date": dt_object.strftime("%a, %b %d") # E.g., Mon, Jun 09
-                                }
-                            # If it's the same day, update min/max temperatures
-                            else:
-                                daily_forecasts[date_str]["temp_min"] = min(daily_forecasts[date_str]["temp_min"], entry["main"]["temp_min"])
-                                daily_forecasts[date_str]["temp_max"] = max(daily_forecasts[date_str]["temp_max"], entry["main"]["temp_max"])
-
-                        # Add fields for each day up to the requested 'days'
-                        current_day_count = 0
-                        for date_key in sorted(daily_forecasts.keys()):
-                            if current_day_count >= days:
-                                break
-                            
-                            forecast = daily_forecasts[date_key]
-                            embed.add_field(
-                                name=forecast["date"],
-                                value=(
-                                    f"Temp: {forecast['temp_min']:.0f}{temp_unit} - {forecast['temp_max']:.0f}{temp_unit}\n"
-                                    f"Condition: {forecast['description']}"
-                                ),
-                                inline=False
-                            )
-                            current_day_count += 1
-                            
-                        await ctx.send(embed=embed)
-
-                    elif response.status == 401:
-                        await ctx.send(f"Error: Invalid OpenWeatherMap API key. Please check your key set with `{ctx.clean_prefix}set api openweathermap api_key <your_key>`.")
-                    elif response.status == 404:
-                        await ctx.send("Error: ZIP/postal code or country not found for forecast. Please check your input.")
-                    else:
-                        await ctx.send(f"An unexpected error occurred with the weather API (Status: {response.status}).")
-            except aiohttp.ClientConnectorError:
-                await ctx.send("Could not connect to the weather API for forecast. Please try again later.")
-            except asyncio.TimeoutError:
-                await ctx.send("The weather API forecast request timed out. Please try again later.")
-            except Exception as e:
-                await ctx.send(f"An error occurred during forecast lookup: {e}")
-                self.bot.logger.error(f"WeatherCog error (forecast): {e}")
