@@ -63,6 +63,7 @@ class WeatherCog(commands.Cog):
         """
         Sets the OpenWeatherMap API key for the weather cog.
         You can get an API key from: https://openweathermap.org/api
+        Note: It might take a few minutes (or occasionally longer) for a new API key to become active on OpenWeatherMap's side.
 
         Usage: [p]weatherset setapikey <your_api_key_here>
         """
@@ -138,7 +139,7 @@ class WeatherCog(commands.Cog):
                     await ctx.send(embed=embed)
 
                 elif response.status == 401: # Unauthorized - likely invalid API key
-                    await ctx.send("Error: Invalid OpenWeatherMap API key. Please check your key with `{ctx.clean_prefix}weatherset setapikey`.")
+                    await ctx.send(f"Error: Invalid OpenWeatherMap API key. Please check your key with `{ctx.clean_prefix}weatherset setapikey`.")
                 elif response.status == 404: # Not Found - likely invalid ZIP code
                     await ctx.send("Error: ZIP/postal code or country not found. Please check your input.")
                 else: # Other HTTP errors
