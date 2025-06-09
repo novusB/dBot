@@ -113,7 +113,16 @@ class WeatherCog(commands.Cog):
         Gets the current weather conditions or a daily forecast for a given ZIP code.
 
         Usage:
-        [p]weather <zip_code> [country_code] [days_for_forecast]
+        [p]weather <zip_code> [country_code]
+        [p]weather <zip_code> [country_code] <days_for_forecast>
+
+        To get the current weather:
+        [p]weather <zip_code>
+        [p]weather <zip_code> <country_code>
+
+        To get a daily forecast (up to 5 days):
+        [p]weather <zip_code> <days_for_forecast>
+        [p]weather <zip_code> <country_code> <days_for_forecast>
 
         Examples:
         [p]weather 90210                 - Current weather for Beverly Hills, USA
