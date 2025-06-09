@@ -1,20 +1,9 @@
-from typing import TypedDict, Literal, Optional # Added Optional for clarity
+from typing import Literal, Optional, Union # Removed TypedDict
 from redbot.core import commands
 import discord
 
 
-class GuildSettings(TypedDict):
-    """
-    Type dictionary for the guild-specific settings stored in Red's Config.
-    """
-    timeout: int
-    game_roles: list[int]
-    votes_needed: int
-    anon_votes: bool
-    ignore_hierarchy: bool
-    action: Literal["kick", "ban"]
-    button: dict[str, Union[str, int]] # button can have string (label, emoji) or int (style)
-
+# Removed GuildSettings TypedDict class
 
 class EmojiConverter(commands.EmojiConverter):
     """
@@ -22,7 +11,7 @@ class EmojiConverter(commands.EmojiConverter):
     """
     async def convert(
         self, ctx: commands.Context, argument: str
-    ) -> Union[discord.Emoji, discord.PartialEmoji]: # Return type can be Emoji or PartialEmoji
+    ) -> Union[discord.Emoji, discord.PartialEmoji]:
         try:
             # Try converting as a custom Discord emoji (from any server the bot is in)
             return await super().convert(ctx, argument)

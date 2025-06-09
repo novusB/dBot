@@ -1,7 +1,7 @@
 import discord
 from redbot.core import commands, modlog
 from redbot.core.bot import Red
-from typing import Optional, Tuple, Set # Added Set for self.votes
+from typing import Optional, Tuple, Set
 
 
 class BaseView(discord.ui.View):
@@ -11,8 +11,8 @@ class BaseView(discord.ui.View):
     """
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.message: discord.Message = None # The message this view is attached to
-        self._author_id: Optional[int] = None # The ID of the user who initiated the command
+        self.message: discord.Message = None
+        self._author_id: Optional[int] = None
 
     async def send_initial_message(
         self, ctx: commands.Context, content: str = None, **kwargs
@@ -20,10 +20,10 @@ class BaseView(discord.ui.View):
         """
         Sends the initial message with the view attached.
         """
-        self._author_id = ctx.author.id # Store the invoker's ID
+        self._author_id = ctx.author.id
         # Reference the original message to keep context in Discord UI.
         kwargs["reference"] = ctx.message.to_reference(fail_if_not_exists=False)
-        kwargs["mention_author"] = False # Prevent bot from pinging author in initial message
+        kwargs["mention_author"] = False
         message = await ctx.send(content, view=self, **kwargs)
         self.message = message
         return message
@@ -34,7 +34,7 @@ class BaseView(discord.ui.View):
         """
         for item in self.children:
             if isinstance(item, discord.ui.Button) and item not in ignore_color:
-                item.style = discord.ButtonStyle.gray # Grey out buttons when disabled
+                item.style = discord.ButtonStyle.gray
             item.disabled = True
 
     async def on_timeout(self):
@@ -42,18 +42,18 @@ class BaseView(discord.ui.View):
         Called when the view times out. Disables items and updates the message.
         """
         self.disable_items()
-        if self.message: # Ensure message exists before editing
+        if self.message:
             await self.message.edit(view=self)
 
 
-class ToxicityView(BaseView): # Changed class name from ToxicView to ToxicityView
+class ToxicityView(BaseView):
     """
     An interactive view for handling the toxicity user vote.
     """
     def __init__(
         self,
         bot: Red,
-        settings: dict, 
+        settings: dict, # Type hint remains as dict
         invoker: discord.Member,
         target: discord.Member,
         reason: str,
@@ -68,9 +68,9 @@ class ToxicityView(BaseView): # Changed class name from ToxicView to ToxicityVie
             reason: The reason provided for the vote.
         """
         self.bot = bot
-        super().__init__(timeout=settings["timeout"]) # Set view timeout from settings
+        super().__init__(timeout=settings["timeout"])
         self.settings = settings
-        self.votes: Set[int] = set([invoker.id]) # Initialize votes with the invoker's ID
+        self.votes: Set[int] = set([invoker.id])
         self.target = target
         self.invoker = invoker
         self.reason = reason
@@ -82,10 +82,9 @@ class ToxicityView(BaseView): # Changed class name from ToxicView to ToxicityVie
             .replace("{votes}", str(len(self.votes)))
             .replace("{votes_needed}", str(settings["votes_needed"]))
             .replace("{target}", target.display_name)
-            # Add timeout variable to label if needed, otherwise it will just remain {timeout}
             .replace("{timeout}", f"{settings['timeout'] // 60}m" if settings['timeout'] % 60 == 0 else f"{settings['timeout']}s")
         )
-        self.vote.emoji = settings["button"]["emoji"] or None # Use None if emoji is empty string
+        self.vote.emoji = settings["button"]["emoji"] or None
         self.vote.style = discord.ButtonStyle(settings["button"]["style"])
 
     @discord.ui.button(label="vote", style=discord.ButtonStyle.red, custom_id="vote_button")
@@ -132,7 +131,7 @@ class ToxicityView(BaseView): # Changed class name from ToxicView to ToxicityVie
             .replace("{votes}", str(len(self.votes)))
             .replace("{votes_needed}", str(self.settings["votes_needed"]))
             .replace("{target}", self.target.display_name)
-            .replace("{timeout}", f"{self.settings['timeout'] // 60}m" if settings['timeout'] % 60 == 0 else f"{settings['timeout']}s")
+            .replace("{timeout}", f"{settings['timeout'] // 60}m" if settings['timeout'] % 60 == 0 else f"{settings['timeout']}s")
         )
 
         # Generate content for the message edit.
@@ -217,7 +216,7 @@ class ToxicityView(BaseView): # Changed class name from ToxicView to ToxicityVie
             # Construct the reason for modlog and public announcement.
             reason_for_log = (
                 f"{self.target.display_name} was {actioned} by a vote initiated by {self.invoker.display_name} "
-                f"for `{self.reason or 'being toxic'}` with {len(self.votes)} out of {self.settings['votes_needed']} votes." # Changed reason message
+                f"for `{self.reason or 'being toxic'}` with {len(self.votes)} out of {self.settings['votes_needed']} votes."
             )
             
             public_announcement = (
@@ -238,7 +237,7 @@ class ToxicityView(BaseView): # Changed class name from ToxicView to ToxicityVie
                     self.bot,
                     self.message.guild,
                     discord.utils.utcnow(), # Timestamp of the action
-                    "Toxicity", # Changed casetype name from Toxic to Toxicity
+                    "Toxicity",
                     self.target, # The user who was affected
                     self.invoker, # The user who initiated the vote (moderator for log purposes)
                     reason_for_log, # Detailed reason for the log

@@ -2,14 +2,14 @@ import discord
 from redbot.core import commands, app_commands, Config, modlog
 from redbot.core.bot import Red
 from redbot.core.utils import chat_formatting as cf
-from typing import Literal, Union
+from typing import Literal, Union, Dict # Changed from GuildSettings to Dict for settings
 from datetime import timedelta
 
 from .views import ToxicityView
-from .utils import GuildSettings, EmojiConverter
+from .utils import EmojiConverter # Removed GuildSettings import as it's no longer used
 
 
-class Toxicity(commands.Cog): # Changed class name from Toxic to Toxicity
+class Toxicity(commands.Cog):
     """
     A custom cog for Red Discord Bot that allows users to vote to punish members due to toxicity.
     """
@@ -48,10 +48,10 @@ class Toxicity(commands.Cog): # Changed class name from Toxic to Toxicity
         """
         # Define the custom casetype for modlog integration.
         case_type = {
-            "name": "Toxicity",  # Changed casetype name from Toxic to Toxicity
-            "default_setting": True, # Whether this casetype is enabled by default
-            "image": "\N{BALLOT BOX WITH BALLOT}", # Emoji/icon for the casetype
-            "case_str": "Toxicity", # Changed casetype string from Toxic to Toxicity
+            "name": "Toxicity",
+            "default_setting": True,
+            "image": "\N{BALLOT BOX WITH BALLOT}",
+            "case_str": "Toxicity",
         }
         try:
             # Register the casetype with Red's modlog.
@@ -60,11 +60,11 @@ class Toxicity(commands.Cog): # Changed class name from Toxic to Toxicity
             # This exception is raised if the casetype is already registered.
             pass
 
-    @commands.command(name="toxicity") # Changed command name from toxic to toxicity
-    @commands.max_concurrency(1, commands.BucketType.guild) # Only one vote can be active per guild at a time
-    @commands.guild_only() # Command can only be used in a Discord guild (server)
-    @commands.bot_has_permissions(kick_members=True, ban_members=True) # Bot must have both kick/ban permissions
-    async def toxicity(self, ctx: commands.Context, user: discord.Member, *, reason: str): # Changed command function name to toxicity
+    @commands.command(name="toxicity")
+    @commands.max_concurrency(1, commands.BucketType.guild)
+    @commands.guild_only()
+    @commands.bot_has_permissions(kick_members=True, ban_members=True)
+    async def toxicity(self, ctx: commands.Context, user: discord.Member, *, reason: str):
         """
         Starts a vote to punish a user due to toxicity in the server.
 
@@ -79,7 +79,7 @@ class Toxicity(commands.Cog): # Changed class name from Toxic to Toxicity
         [p]toxicity @AnnoyingUser spamming chat with nonsense
         [p]toxicity 123456789012345678 constantly being disruptive
         """
-        settings: GuildSettings = await self.config.guild(ctx.guild).all()
+        settings: Dict = await self.config.guild(ctx.guild).all() # Changed type hint to Dict
 
         # Basic checks to prevent invalid votes
         if user.id == ctx.author.id:
@@ -133,12 +133,12 @@ class Toxicity(commands.Cog): # Changed class name from Toxic to Toxicity
                 )
 
         # Create and start the interactive voting view.
-        view = ToxicityView(self.bot, settings, ctx.author, user, reason) # Changed ToxicView to ToxicityView
+        view = ToxicityView(self.bot, settings, ctx.author, user, reason)
         await view.start(ctx)
         await view.wait() # Wait for the view to complete (timeout or button press)
 
     @commands.group(
-        name="toxicitysettings", aliases=["toxicityset", "tset", "tsettings"], invoke_without_command=True # Changed group name and aliases
+        name="toxicitysettings", aliases=["toxicityset", "tset", "tsettings"], invoke_without_command=True
     )
     @commands.guild_only() # Ensure settings commands are only usable in a guild
     @commands.has_permissions(manage_guild=True) # Only users with manage_guild permission can access settings
@@ -146,7 +146,7 @@ class Toxicity(commands.Cog): # Changed class name from Toxic to Toxicity
         """
         Change the Toxicity Player Punishment Settings for this server.
         """
-        settings: GuildSettings = await self.config.guild(ctx.guild).all()
+        settings: Dict = await self.config.guild(ctx.guild).all() # Changed type hint to Dict
         
         # Format game roles for display.
         game_roles_display = "No roles set. Anyone can start/be targeted by votes."
@@ -158,7 +158,7 @@ class Toxicity(commands.Cog): # Changed class name from Toxic to Toxicity
             game_roles_display = cf.humanize_list(valid_game_roles) if valid_game_roles else "No valid roles found."
 
         settings_embed = discord.Embed(
-            title="Toxicity Player Settings", # Changed title
+            title="Toxicity Player Settings",
             description=(
                 f"**Vote Timeout:** {cf.humanize_timedelta(seconds=settings['timeout'])} before voting ends.\n"
                 f"**Game Roles:** {game_roles_display}\n"
@@ -172,16 +172,16 @@ class Toxicity(commands.Cog): # Changed class name from Toxic to Toxicity
         await ctx.send(embed=settings_embed)
 
     @vs.command(name="timeout")
-    @commands.admin_or_permissions(manage_guild=True) # Admin or manage_guild can set timeout
+    @commands.admin_or_permissions(manage_guild=True)
     async def vs_timeout(
         self,
         ctx: commands.Context,
         duration: timedelta = commands.param(
             converter=commands.get_timedelta_converter(
-                allowed_units=["seconds", "minutes"], # Only allow seconds and minutes
-                maximum=timedelta(minutes=15), # Max vote duration 15 minutes
-                minimum=timedelta(seconds=60), # Min vote duration 60 seconds
-                default_unit="seconds", # Default unit if none specified
+                allowed_units=["seconds", "minutes"],
+                maximum=timedelta(minutes=15),
+                minimum=timedelta(seconds=60),
+                default_unit="seconds",
             )
         ),
     ):
@@ -197,7 +197,7 @@ class Toxicity(commands.Cog): # Changed class name from Toxic to Toxicity
         )
 
     @vs.command(name="gameroles", aliases=["groles"])
-    @commands.admin_or_permissions(manage_guild=True) # Admin or manage_guild can set game roles
+    @commands.admin_or_permissions(manage_guild=True)
     async def vs_game_roles(
         self, ctx: commands.Context, *roles: discord.Role
     ):
@@ -218,14 +218,14 @@ class Toxicity(commands.Cog): # Changed class name from Toxic to Toxicity
             return await ctx.send("Game roles cleared. Anyone can now participate in votes.")
 
         await self.config.guild(ctx.guild).game_roles.set(
-            [role.id for role in roles] # Store only role IDs
+            [role.id for role in roles]
         )
         await ctx.send(
             f"Successfully set game roles to {cf.humanize_list(list(map(lambda x: f'<@&{x.id}>', roles)))}."
         )
 
     @vs.command(name="votesneeded")
-    @commands.admin_or_permissions(manage_guild=True) # Admin or manage_guild can set votes needed
+    @commands.admin_or_permissions(manage_guild=True)
     async def vs_votes_needed(
         self, ctx: commands.Context, votes_needed: commands.Range[int, 2, None]
     ):
@@ -238,7 +238,7 @@ class Toxicity(commands.Cog): # Changed class name from Toxic to Toxicity
         await ctx.send(f"Successfully set votes needed to: {votes_needed}.")
 
     @vs.command(name="anonymousvotes", aliases=["anonvotes"])
-    @commands.admin_or_permissions(manage_guild=True) # Admin or manage_guild can set anonymity
+    @commands.admin_or_permissions(manage_guild=True)
     async def vs_anon_votes(self, ctx: commands.Context, value: bool):
         """
         Set whether or not the voters' identities are announced in the channel.
@@ -250,7 +250,7 @@ class Toxicity(commands.Cog): # Changed class name from Toxic to Toxicity
         await ctx.send(f"Voters will {'' if value else 'not '}be anonymous now.")
 
     @vs.command(name="ignorehierarchy", aliases=["ignorehier"])
-    @commands.admin_or_permissions(manage_guild=True) # Admin or manage_guild can set hierarchy ignoring
+    @commands.admin_or_permissions(manage_guild=True)
     async def vs_ignore_hierarchy(self, ctx: commands.Context, value: bool):
         """
         Set whether or not to ignore Discord's role hierarchy for voting.
@@ -262,7 +262,7 @@ class Toxicity(commands.Cog): # Changed class name from Toxic to Toxicity
         await ctx.send(f"Role hierarchy will {'' if value else 'not '}be ignored now.")
 
     @vs.command(name="action")
-    @commands.admin_or_permissions(manage_guild=True) # Admin or manage_guild can set action
+    @commands.admin_or_permissions(manage_guild=True)
     async def vs_action(self, ctx: commands.Context, action: Literal["kick", "ban"]):
         """
         Change the action to take on a toxicity user if the vote passes.
@@ -281,14 +281,14 @@ class Toxicity(commands.Cog): # Changed class name from Toxic to Toxicity
         await ctx.send(f"Successfully set action to `{action}`.")
 
     @vs.group(name="button", invoke_without_command=True)
-    @commands.admin_or_permissions(manage_guild=True) # Admin or manage_guild can set button settings
+    @commands.admin_or_permissions(manage_guild=True)
     async def vs_button(self, ctx: commands.Context):
         """
         Change the button settings for starting a toxicity user vote.
         """
-        settings: GuildSettings = await self.config.guild(ctx.guild).all()
+        settings: Dict = await self.config.guild(ctx.guild).all() # Changed type hint to Dict
         button_embed = discord.Embed(
-            title="Toxicity Player Button Settings", # Changed title
+            title="Toxicity Player Button Settings",
             description=(
                 f"**Style:** {discord.ButtonStyle(settings['button']['style']).name}\n"
                 f"**Label:** `{settings['button']['label']}`\n"
@@ -308,12 +308,12 @@ class Toxicity(commands.Cog): # Changed class name from Toxic to Toxicity
             view.add_item(preview_button)
         except Exception as e:
             await ctx.send(f"Could not create a preview button due to an error: {e}. Please check your button settings.")
-            self.bot.logger.error(f"Toxicity cog button preview error: {e}") # Changed log message
+            self.bot.logger.error(f"Toxicity cog button preview error: {e}")
 
         await ctx.send(embed=button_embed, view=view)
 
     @vs_button.command(name="style")
-    @commands.admin_or_permissions(manage_guild=True) # Admin or manage_guild can set button style
+    @commands.admin_or_permissions(manage_guild=True)
     async def vs_button_style(
         self, ctx: commands.Context, style: commands.Range[int, 1, 4]
     ):
@@ -326,7 +326,7 @@ class Toxicity(commands.Cog): # Changed class name from Toxic to Toxicity
         await ctx.send(f"Successfully set style to {discord.ButtonStyle(style).name.capitalize()}.")
 
     @vs_button.command(name="label")
-    @commands.admin_or_permissions(manage_guild=True) # Admin or manage_guild can set button label
+    @commands.admin_or_permissions(manage_guild=True)
     async def vs_button_label(
         self, ctx: commands.Context, *, label: commands.Range[str, 1, 80]
     ):
@@ -343,12 +343,12 @@ class Toxicity(commands.Cog): # Changed class name from Toxic to Toxicity
         await ctx.send(f"Successfully set label to: `{label}`.")
 
     @vs_button.command(name="emoji")
-    @commands.admin_or_permissions(manage_guild=True) # Admin or manage_guild can set button emoji
+    @commands.admin_or_permissions(manage_guild=True)
     async def vs_button_emoji(
         self,
         ctx: commands.Context,
         emoji: Optional[Union[discord.Emoji, discord.PartialEmoji]] = commands.param(
-            converter=EmojiConverter, default=None # Allow setting no emoji
+            converter=EmojiConverter, default=None
         ),
     ):
         """
