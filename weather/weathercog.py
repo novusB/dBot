@@ -70,6 +70,20 @@ class WeatherCog(commands.Cog):
         await self.config.api_key.set(api_key) # Store the API key in Red's config
         await ctx.send("OpenWeatherMap API key has been set!")
 
+    @weatherset.command()
+    async def viewapikey(self, ctx):
+        """
+        Views the currently stored OpenWeatherMap API key.
+        This command is only usable by the bot owner.
+        """
+        api_key = await self.config.api_key()
+        if api_key:
+            await ctx.author.send(f"The current OpenWeatherMap API key is: `{api_key}`")
+            if ctx.guild: # Send a public confirmation if used in a guild
+                await ctx.send("The API key has been sent to your DMs.")
+        else:
+            await ctx.send("No OpenWeatherMap API key is currently set.")
+
     @commands.command()
     @commands.guild_only()
     @commands.cooldown(1, 5, commands.BucketType.user) # Cooldown to prevent API spam
