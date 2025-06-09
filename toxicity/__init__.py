@@ -1,9 +1,9 @@
-from .main import Toxicity # Import the main cog class from main.py
+from .toxic import Toxic
+
+__red_end_user_data_statement__ = (
+    "This cog stores data about active votes including the initiator, "
+    "target, and reason. No personal data is stored after votes are completed."
+)
 
 async def setup(bot):
-    """
-    Sets up the Toxicity cog when Red starts.
-    This function is called by Red to load the cog.
-    """
-    await bot.add_cog(Toxicity(bot))
-    print("Toxicity cog loaded successfully!") # Optional: for confirmation in console
+    await bot.add_cog(Toxic(bot))
