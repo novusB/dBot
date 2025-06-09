@@ -14,7 +14,7 @@ class WeatherCog(commands.Cog):
     # and a guild scope if we wanted guild-specific API keys (not used here).
     # In this case, the API key is stored globally for the bot owner.
     _config_schema = {
-        "api_key": "" # Key to store the OpenWeatherMap API key
+        "weather_api_key": "" # Key to store the OpenWeatherMap API key (renamed)
     }
 
     def __init__(self, bot):
@@ -67,7 +67,8 @@ class WeatherCog(commands.Cog):
 
         Usage: [p]weatherset setapikey <your_api_key_here>
         """
-        await self.config.api_key.set(api_key) # Store the API key in Red's config
+        # Store the API key in Red's config using the new variable name
+        await self.config.weather_api_key.set(api_key) 
         await ctx.send("OpenWeatherMap API key has been set!")
 
     @weatherset.command()
@@ -76,7 +77,8 @@ class WeatherCog(commands.Cog):
         Views the currently stored OpenWeatherMap API key.
         This command is only usable by the bot owner.
         """
-        api_key = await self.config.api_key()
+        # Retrieve the API key using the new variable name
+        api_key = await self.config.weather_api_key()
         if api_key:
             try:
                 await ctx.author.send(f"The current OpenWeatherMap API key is: `{api_key}`")
@@ -108,7 +110,8 @@ class WeatherCog(commands.Cog):
         [p]weather 78701 us
         [p]weather SW1A0AA gb (for UK postcodes)
         """
-        api_key = await self.config.api_key() # Retrieve the API key from config
+        # Retrieve the API key using the new variable name
+        api_key = await self.config.weather_api_key() 
 
         if not api_key:
             return await ctx.send(
