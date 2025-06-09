@@ -105,12 +105,13 @@ class WeatherCog(commands.Cog):
                 f"Please set it using `{ctx.clean_prefix}set api openweathermap api_key <your_key>`."
             )
 
-    @commands.command()
+    @commands.group(invoke_without_command=True) # Changed to commands.group to allow subcommands
     @commands.guild_only()
     @commands.cooldown(1, 60, commands.BucketType.user) # Cooldown changed to 60 seconds
     async def weather(self, ctx, zip_code: str, country_code: str = "us", days: int = None):
         """
-        Gets the current weather conditions or a 1-day forecast for a given ZIP code.
+        Gets the current weather conditions for a given ZIP code.
+        Use `[p]weather aqi` for air quality information.
 
         Usage:
         [p]weather <zip_code> [country_code]
@@ -142,6 +143,9 @@ class WeatherCog(commands.Cog):
                 f"The OpenWeatherMap API key is not set. Please set it using Red's shared API tokens:\n"
                 f"`{ctx.clean_prefix}set api openweathermap api_key <your_api_key>`."
             )
+
+        if ctx.invoked_subcommand is not None:
+            return # If a subcommand was invoked, don't run the base command
 
         if not zip_code.isalnum():
             return await ctx.send("Please provide a valid ZIP/postal code.")
@@ -265,20 +269,21 @@ class WeatherCog(commands.Cog):
                 await ctx.send(f"An error occurred: {e}")
                 self.bot.logger.error(f"WeatherCog error (current weather): {e}")
 
-    @commands.command()
+    @weather.command(name="aqi") # Changed to a subcommand of weather
     @commands.guild_only()
     @commands.cooldown(1, 60, commands.BucketType.user) # Cooldown changed to 60 seconds
-    async def aqi(self, ctx, zip_code: str, country_code: str = "us"):
+    async def _aqi(self, ctx, zip_code: str, country_code: str = "us"):
         """
         Gets the current Air Quality Index (AQI) and pollutant concentrations for a given ZIP code.
+        This is a subcommand of `[p]weather`.
 
         Usage:
-        [p]aqi <zip_code> [country_code]
+        [p]weather aqi <zip_code> [country_code]
 
         Examples:
-        [p]aqi 90210
-        [p]aqi 78701 us
-        [p]aqi SW1A0AA gb
+        [p]weather aqi 90210
+        [p]weather aqi 78701 us
+        [p]weather aqi SW1A0AA gb
         """
         tokens = await self.bot.get_shared_api_tokens("openweathermap")
         api_key = tokens.get("api_key")
