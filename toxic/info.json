@@ -1,0 +1,11 @@
+{
+  "author": ["Your Name"],
+  "install_msg": "Thanks for installing the Toxic cog! Use `[p]help toxic` to see available commands.",
+  "name": "Toxic",
+  "short": "Vote-based kick/ban system for server members with matching roles.",
+  "description": "Allows server members to initiate votes to kick or ban other members with the same roles. Configurable vote duration, threshold, and more.",
+  "tags": ["moderation", "voting", "kick", "ban"],
+  "requirements": [],
+  "min_bot_version": "3.5.0",
+  "end_user_data_statement": "This cog stores data about active votes including the initiator, target, and reason. No personal data is stored after votes are completed."
+}
