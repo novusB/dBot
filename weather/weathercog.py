@@ -78,9 +78,18 @@ class WeatherCog(commands.Cog):
         """
         api_key = await self.config.api_key()
         if api_key:
-            await ctx.author.send(f"The current OpenWeatherMap API key is: `{api_key}`")
-            if ctx.guild: # Send a public confirmation if used in a guild
-                await ctx.send("The API key has been sent to your DMs.")
+            try:
+                await ctx.author.send(f"The current OpenWeatherMap API key is: `{api_key}`")
+                if ctx.guild: # Send a public confirmation if used in a guild
+                    await ctx.send("The API key has been sent to your DMs.")
+            except discord.Forbidden:
+                await ctx.send(
+                    "I could not send the API key to your DMs. "
+                    "Please check your Discord privacy settings to allow DMs from this bot."
+                )
+            except Exception as e:
+                await ctx.send(f"An unexpected error occurred while sending the API key to your DMs: {e}")
+                self.bot.logger.error(f"WeatherCog viewapikey error: {e}")
         else:
             await ctx.send("No OpenWeatherMap API key is currently set.")
 
