@@ -1,7 +1,7 @@
 {
     "name": "WeatherCog",
     "author": ["novusB"],
-    "description": "A custom cog to fetch current weather conditions or a daily forecast by ZIP/postal code using OpenWeatherMap. Uses Red's shared API tokens for security.",
+    "description": "A custom cog to fetch current weather conditions or a daily forecast by ZIP/postal code",
     "tags": ["utility", "weather", "information", "forecast"],
     "end_user_diagnose_enabled": false,
     "min_bot_version": "3.0.0",
