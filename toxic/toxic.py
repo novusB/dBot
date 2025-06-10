@@ -135,23 +135,12 @@ class Toxic(commands.Cog):
             target_roles_str = ", ".join([role.name for role in additional_info.get("target_roles", [])]) or "None"
             initiator_roles_str = ", ".join([role.name for role in additional_info.get("initiator_roles", [])]) or "None"
         
-            # Format membership duration
-            membership_duration = additional_info.get("server_membership_duration")
-            if membership_duration:
-                days = membership_duration.days
-                hours, remainder = divmod(membership_duration.seconds, 3600)
-                minutes, _ = divmod(remainder, 60)
-                duration_str = f"{days} days, {hours} hours, {minutes} minutes"
-            else:
-                duration_str = "Unknown"
-        
             # Create comprehensive reason for modlog
             detailed_reason = (
                 f"Toxic vote {action} initiated by {vote_data['initiator']} | "
                 f"Channel: #{additional_info.get('vote_channel', {}).name if additional_info.get('vote_channel') else 'Unknown'} | "
                 f"Request time: {additional_info.get('request_timestamp', 'Unknown').strftime('%Y-%m-%d %H:%M:%S UTC') if additional_info.get('request_timestamp') else 'Unknown'} | "
                 f"Votes: {yes_votes} yes, {no_votes} no, {abstain_votes} abstain | "
-                f"Target server time: {duration_str} | "
                 f"Target roles: {target_roles_str} | "
                 f"Shared roles: {shared_roles_str} | "
                 f"Original reason: {reason}"
@@ -220,22 +209,9 @@ class Toxic(commands.Cog):
             )
         
             # Target user information
-            target_join_date = additional_info.get("target_join_date")
-            membership_duration = additional_info.get("server_membership_duration")
-        
-            if membership_duration:
-                days = membership_duration.days
-                hours, remainder = divmod(membership_duration.seconds, 3600)
-                minutes, _ = divmod(remainder, 60)
-                duration_str = f"{days} days, {hours} hours, {minutes} minutes"
-            else:
-                duration_str = "Unknown"
-            
             detailed_embed.add_field(
                 name="👤 Target User Info",
-                value=f"**Joined Server:** {target_join_date.strftime('%Y-%m-%d %H:%M:%S UTC') if target_join_date else 'Unknown'}\n"
-                      f"**Server Membership:** {duration_str}\n"
-                      f"**User ID:** {vote_data['target'].id}",
+                value=f"**User ID:** {vote_data['target'].id}",
                 inline=True
             )
         
@@ -354,18 +330,12 @@ class Toxic(commands.Cog):
         target_roles = [role for role in member.roles if role != member.guild.default_role]
         shared_roles = [role for role in initiator_roles if role in target_roles]
 
-        # Calculate how long target has been in server
-        target_join_date = member.joined_at
-        server_membership_duration = datetime.utcnow() - target_join_date if target_join_date else None
-
         # Store additional logging info
         additional_info = {
             "vote_channel": vote_channel,
             "initiator_roles": initiator_roles,
             "target_roles": target_roles,
             "shared_roles": shared_roles,
-            "target_join_date": target_join_date,
-            "server_membership_duration": server_membership_duration,
             "request_timestamp": datetime.utcnow()
         }
         
