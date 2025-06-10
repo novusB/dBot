@@ -25,14 +25,17 @@ class Toxic(commands.Cog):
         self.config.register_guild(**default_guild)
         self.active_votes: Dict[int, Dict[int, dict]] = {}
         
-        # Register modlog case types
-        self._register_casetypes()
+        # Schedule casetype registration for when bot is ready
+        asyncio.create_task(self._register_casetypes())
 
-    def _register_casetypes(self):
+    async def _register_casetypes(self):
         """Register custom case types for modlog integration."""
+        # Wait for bot to be ready
+        await self.bot.wait_until_ready()
+        
         try:
             # Register vote kick case type
-            modlog.register_casetype(
+            await modlog.register_casetype(
                 name="votekick",
                 default_setting=True,
                 image="🗳️",
@@ -40,7 +43,7 @@ class Toxic(commands.Cog):
             )
             
             # Register vote ban case type
-            modlog.register_casetype(
+            await modlog.register_casetype(
                 name="voteban", 
                 default_setting=True,
                 image="🗳️",
@@ -49,6 +52,9 @@ class Toxic(commands.Cog):
         except RuntimeError:
             # Case types already registered
             pass
+        except Exception as e:
+            # Log any other errors but don't fail
+            print(f"Failed to register modlog case types: {e}")
 
     def cog_unload(self):
         """Clean up active votes when cog is unloaded."""
