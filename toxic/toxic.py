@@ -402,9 +402,9 @@ class Toxic(commands.Cog):
             return
 
         # Process the vote result (timer completion)
-        await self._process_vote_result(guild, member_id, early_completion=False)
+        await self._process_vote_result(guild, member_id)
 
-    async def _process_vote_result(self, guild: discord.Guild, member_id: int, early_completion: bool = False):
+    async def _process_vote_result(self, guild: discord.Guild, member_id: int):
         """Process vote results and execute actions."""
         # Check if this instance should handle this vote
         vote_data = self.active_votes.get(guild.id, {}).get(member_id)
@@ -440,7 +440,7 @@ class Toxic(commands.Cog):
     
         # Create result embed
         embed = discord.Embed(
-            title="🗳️ Vote Results" + (" (Early Completion)" if early_completion else ""), 
+            title="🗳️ Vote Results",
             timestamp=datetime.now(timezone(timedelta(hours=-5)))
         )
         embed.add_field(name="Target", value=vote_data["target"].mention, inline=True)
@@ -486,8 +486,6 @@ class Toxic(commands.Cog):
             
                 embed.color = discord.Color.red()
                 result_text = f"✅ Vote passed! Member {action}ed."
-                if early_completion:
-                    result_text += f"\n🚀 Vote completed early ({yes_votes}/{votes_needed} votes reached)"
                 if MODLOG_AVAILABLE:
                     result_text += "\n📋 Action logged in moderation log."
                 embed.add_field(name="Result", value=result_text, inline=False)
@@ -501,8 +499,6 @@ class Toxic(commands.Cog):
         else:
             embed.color = discord.Color.green()
             result_text = "❌ Vote failed."
-            if early_completion:
-                result_text += f"\n⏰ Vote ended early (insufficient support)"
             embed.add_field(name="Result", value=result_text, inline=False)
     
         # Update message with results
@@ -1137,37 +1133,6 @@ class Toxic(commands.Cog):
                             await reaction.message.remove_reaction(emoji, user)
                         except discord.HTTPException:
                             pass
-            
-                # Check if vote threshold has been reached
-                try:
-                    message = await reaction.message.channel.fetch_message(reaction.message.id)
-                    yes_votes = no_votes = abstain_votes = 0
-                
-                    for msg_reaction in message.reactions:
-                        emoji_str = str(msg_reaction.emoji)
-                        if emoji_str == emojis[0]:
-                            yes_votes = msg_reaction.count - 1
-                        elif emoji_str == emojis[1]:
-                            no_votes = msg_reaction.count - 1
-                        elif emoji_str == emojis[2]:
-                            abstain_votes = msg_reaction.count - 1
-                
-                    votes_needed = vote_data["config"]["votes_needed"]
-                
-                    # If vote threshold reached, process immediately
-                    if yes_votes >= votes_needed and yes_votes > no_votes:
-                        # Mark as processed to prevent timer from also processing
-                        vote_data["processed"] = True
-                    
-                        # Process the vote immediately
-                        asyncio.create_task(self._process_vote_result(reaction.message.guild, member_id, early_completion=True))
-                    
-                except discord.NotFound:
-                    # Message was deleted, clean up
-                    if reaction.message.guild.id in self.active_votes and member_id in self.active_votes[reaction.message.guild.id]:
-                        del self.active_votes[reaction.message.guild.id][member_id]
-                except Exception as e:
-                    print(f"Toxic cog: Error checking vote threshold: {e}")
             
                 break
 
