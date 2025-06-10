@@ -805,3 +805,31 @@ class Toxic(commands.Cog):
                         except discord.HTTPException:
                             pass
                 break
+
+    @toxic.error
+    async def toxic_error_handler(self, ctx, error):
+        """Handle errors for the toxic command group."""
+        if isinstance(error, commands.CheckFailure):
+            if ctx.invoked_subcommand and ctx.invoked_subcommand.parent.name == "config":
+                embed = discord.Embed(
+                    title="❌ Insufficient Permissions",
+                    description="You need **Administrator** permissions or **Manage Server** permissions to configure the toxic vote system.",
+                    color=discord.Color.red()
+                )
+                embed.add_field(
+                    name="Required Permissions",
+                    value="• Administrator\n• Manage Server",
+                    inline=True
+                )
+                embed.add_field(
+                    name="Available Commands",
+                    value="• `[p]toxic vote @user reason`\n• `[p]toxic list`\n• `[p]toxic cancel @user` (if you started the vote)",
+                    inline=True
+                )
+                await ctx.send(embed=embed)
+            else:
+                # Handle other permission errors for non-config commands
+                await ctx.send("❌ You don't have permission to use this command.")
+        else:
+            # Re-raise other errors to be handled by Red's default error handler
+            raise error
