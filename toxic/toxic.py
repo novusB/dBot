@@ -119,7 +119,7 @@ class Toxic(commands.Cog):
     @commands.guild_only()
     @commands.cooldown(1, 60, commands.BucketType.user)
     async def vote_kick(self, ctx, member: discord.Member, *, reason: str = "No reason provided"):
-        """Initiate a vote to kick/ban a toxic member."""
+        """Initiate a vote to kick/ban a member with matching roles."""
         
         # Basic checks
         if not await self.config.guild(ctx.guild).enabled():
@@ -138,7 +138,7 @@ class Toxic(commands.Cog):
         if (not self._has_matching_roles(ctx.author, member) and 
             ctx.author != ctx.guild.owner and 
             not ctx.author.guild_permissions.kick_members):
-            return await ctx.send("❌ You can only vote against toxic players who play the same games as you!")
+            return await ctx.send("❌ You can only vote against members with identical roles!")
         
         # Check for existing vote
         guild_votes = self.active_votes.get(ctx.guild.id, {})
@@ -350,13 +350,13 @@ class Toxic(commands.Cog):
         
         await ctx.send(embed=embed)
 
-    @toxic.group(name="config")
+    @toxic.group(name="config", invoke_without_command=True)
     @commands.guild_only()
     @checks.admin_or_permissions(manage_guild=True)
     async def config(self, ctx):
         """Configure the toxic vote system."""
-        if ctx.invoked_subcommand is None:
-            await ctx.send_help(ctx.command)
+        # Show current configuration when no subcommand is provided
+        await self.view_config(ctx)
 
     @config.command(name="duration")
     @checks.admin_or_permissions(manage_guild=True)
