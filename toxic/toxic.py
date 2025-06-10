@@ -390,7 +390,7 @@ class Toxic(commands.Cog):
         if (not vote_data or 
             vote_data.get("processed", False) or 
             vote_data.get("instance_id") != self._instance_id):
-        return
+            return
         
         await asyncio.sleep(vote_data["config"]["vote_duration"])
         
@@ -399,8 +399,8 @@ class Toxic(commands.Cog):
             member_id not in self.active_votes[guild.id] or 
             self.active_votes[guild.id][member_id].get("processed", False) or
             self.active_votes[guild.id][member_id].get("instance_id") != self._instance_id):
-        return
-    
+            return
+
         # Process the vote result (timer completion)
         await self._process_vote_result(guild, member_id, early_completion=False)
 
