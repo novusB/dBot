@@ -2,7 +2,7 @@ import asyncio
 import discord
 from datetime import datetime, timedelta
 from typing import Optional, Dict, Union
-from redbot.core import commands, Config, checks
+from redbot.core import commands, Config, checks, modlog
 from redbot.core.utils.chat_formatting import humanize_timedelta
 from redbot.core.bot import Red
 
@@ -24,6 +24,31 @@ class Toxic(commands.Cog):
         
         self.config.register_guild(**default_guild)
         self.active_votes: Dict[int, Dict[int, dict]] = {}
+        
+        # Register modlog case types
+        self._register_casetypes()
+
+    def _register_casetypes(self):
+        """Register custom case types for modlog integration."""
+        try:
+            # Register vote kick case type
+            modlog.register_casetype(
+                name="votekick",
+                default_setting=True,
+                image="🗳️",
+                case_str="Vote Kick"
+            )
+            
+            # Register vote ban case type
+            modlog.register_casetype(
+                name="voteban", 
+                default_setting=True,
+                image="🗳️",
+                case_str="Vote Ban"
+            )
+        except RuntimeError:
+            # Case types already registered
+            pass
 
     def cog_unload(self):
         """Clean up active votes when cog is unloaded."""
@@ -34,6 +59,55 @@ class Toxic(commands.Cog):
         roles1 = {role.id for role in member1.roles if role != member1.guild.default_role}
         roles2 = {role.id for role in member2.roles if role != member2.guild.default_role}
         return roles1 == roles2
+
+    async def _create_modlog_case(self, guild: discord.Guild, action: str, moderator: discord.Member, 
+                                 user: discord.Member, reason: str, vote_data: dict):
+        """Create a modlog case for the vote action."""
+        try:
+            # Count final votes for the case
+            message = vote_data["message"]
+            try:
+                message = await message.channel.fetch_message(message.id)
+                yes_votes = no_votes = abstain_votes = 0
+                emojis = vote_data["config"]["vote_emojis"]
+                
+                for reaction in message.reactions:
+                    emoji_str = str(reaction.emoji)
+                    if emoji_str == emojis[0]:
+                        yes_votes = reaction.count - 1
+                    elif emoji_str == emojis[1]:
+                        no_votes = reaction.count - 1
+                    elif emoji_str == emojis[2]:
+                        abstain_votes = reaction.count - 1
+            except discord.NotFound:
+                yes_votes = no_votes = abstain_votes = 0
+            
+            # Create detailed reason for modlog
+            detailed_reason = (
+                f"Vote {action} initiated by {vote_data['initiator']} | "
+                f"Votes: {yes_votes} yes, {no_votes} no, {abstain_votes} abstain | "
+                f"Original reason: {reason}"
+            )
+            
+            # Determine case type
+            case_type = "voteban" if action == "ban" else "votekick"
+            
+            # Create the modlog case
+            await modlog.create_case(
+                bot=self.bot,
+                guild=guild,
+                created_at=datetime.utcnow(),
+                action_type=case_type,
+                user=user,
+                moderator=moderator,
+                reason=detailed_reason,
+                until=None,
+                channel=None
+            )
+            
+        except Exception as e:
+            # Log error but don't fail the action
+            print(f"Failed to create modlog case: {e}")
 
     @commands.group(name="toxic")
     @commands.guild_only()
@@ -95,6 +169,8 @@ class Toxic(commands.Cog):
                   f"{config['vote_emojis'][2]} - Abstain",
             inline=False
         )
+        
+        embed.set_footer(text="This action will be logged in the moderation log if successful")
         
         vote_message = await ctx.send(embed=embed)
         
@@ -170,13 +246,28 @@ class Toxic(commands.Cog):
             action = "ban" if vote_data["config"]["ban_mode"] else "kick"
             
             try:
+                # Perform the action
                 if vote_data["config"]["ban_mode"]:
                     await vote_data["target"].ban(reason=f"Vote ban: {vote_data['reason']}")
                 else:
                     await vote_data["target"].kick(reason=f"Vote kick: {vote_data['reason']}")
                 
+                # Create modlog case
+                await self._create_modlog_case(
+                    guild=guild,
+                    action=action,
+                    moderator=guild.me,  # Bot is the moderator
+                    user=vote_data["target"],
+                    reason=vote_data["reason"],
+                    vote_data=vote_data
+                )
+                
                 embed.color = discord.Color.red()
-                embed.add_field(name="Result", value=f"✅ Vote passed! Member {action}ed.", inline=False)
+                embed.add_field(
+                    name="Result", 
+                    value=f"✅ Vote passed! Member {action}ed.\n📋 Action logged in moderation log.", 
+                    inline=False
+                )
                 
             except discord.Forbidden:
                 embed.color = discord.Color.orange()
@@ -191,7 +282,7 @@ class Toxic(commands.Cog):
         await message.edit(embed=embed)
         await message.clear_reactions()
         
-        # Log result
+        # Log result to custom log channel (in addition to modlog)
         log_channel_id = vote_data["config"]["log_channel"]
         if log_channel_id:
             log_channel = guild.get_channel(log_channel_id)
@@ -373,7 +464,8 @@ class Toxic(commands.Cog):
         
         embed = discord.Embed(
             title="✅ Vote Mode Updated",
-            description=f"Vote punishment set to: **{mode.upper()}**",
+            description=f"Vote punishment set to: **{mode.upper()}**\n\n"
+                       f"📋 All {mode} actions will be logged in the moderation log.",
             color=discord.Color.green() if mode == "kick" else discord.Color.red()
         )
         
@@ -423,7 +515,8 @@ class Toxic(commands.Cog):
             embed.add_field(
                 name="Next Steps",
                 value="• Users can now start votes with `[p]toxic vote @user reason`\n"
-                      "• Check settings with `[p]toxic config view`",
+                      "• Check settings with `[p]toxic config view`\n"
+                      "• All actions will be logged in the moderation log",
                 inline=False
             )
         
@@ -433,15 +526,19 @@ class Toxic(commands.Cog):
     @checks.admin_or_permissions(manage_guild=True)
     async def set_log_channel(self, ctx, channel: Optional[discord.TextChannel] = None):
         """
-        Set the channel where vote results are logged.
+        Set an additional channel where vote results are logged.
+        
+        Note: All kick/ban actions are automatically logged in the moderation log.
+        This setting adds an extra log channel for vote-specific information.
         
         Usage:
-        - `[p]toxic config logchannel #channel` - Set log channel
-        - `[p]toxic config logchannel` - Disable logging
+        - `[p]toxic config logchannel #channel` - Set additional log channel
+        - `[p]toxic config logchannel` - Disable additional logging
         """
         if channel is None:
             await self.config.guild(ctx.guild).log_channel.set(None)
-            await ctx.send("✅ Vote result logging **disabled**.")
+            await ctx.send("✅ Additional vote result logging **disabled**.\n"
+                          "📋 Actions will still be logged in the moderation log.")
         else:
             # Check if bot can send messages in the channel
             if not channel.permissions_for(ctx.guild.me).send_messages:
@@ -451,12 +548,14 @@ class Toxic(commands.Cog):
             
             # Send test message
             embed = discord.Embed(
-                title="📋 Vote Logging Enabled",
-                description="This channel will now receive vote result logs.",
+                title="📋 Additional Vote Logging Enabled",
+                description="This channel will now receive detailed vote result logs.\n\n"
+                           "**Note:** Kick/ban actions are also logged in the moderation log.",
                 color=discord.Color.blue()
             )
             await channel.send(embed=embed)
-            await ctx.send(f"✅ Vote results will be logged to {channel.mention}.")
+            await ctx.send(f"✅ Additional vote results will be logged to {channel.mention}.\n"
+                          "📋 Actions will also continue to be logged in the moderation log.")
 
     @config.command(name="preset")
     @checks.admin_or_permissions(manage_guild=True)
@@ -517,7 +616,8 @@ class Toxic(commands.Cog):
             description=f"**{preset['description']}**\n\n"
                        f"**Duration:** {humanize_timedelta(seconds=preset['vote_duration'])}\n"
                        f"**Votes needed:** {preset['votes_needed']}\n"
-                       f"**Mode:** {'Ban' if preset['ban_mode'] else 'Kick'}",
+                       f"**Mode:** {'Ban' if preset['ban_mode'] else 'Kick'}\n\n"
+                       f"📋 All actions will be logged in the moderation log.",
             color=discord.Color.orange()
         )
         
@@ -545,7 +645,8 @@ class Toxic(commands.Cog):
         
         embed = discord.Embed(
             title="✅ Preset Applied Successfully",
-            description=f"**'{preset_name.title()}'** configuration is now active!",
+            description=f"**'{preset_name.title()}'** configuration is now active!\n\n"
+                       f"📋 All moderation actions will be logged in the moderation log.",
             color=discord.Color.green()
         )
         
@@ -581,11 +682,18 @@ class Toxic(commands.Cog):
         # Log channel
         log_channel = ctx.guild.get_channel(config["log_channel"]) if config["log_channel"] else None
         log_text = f"📋 {log_channel.mention}" if log_channel else "📋 **Disabled**"
-        embed.add_field(name="Log Channel", value=log_text, inline=True)
+        embed.add_field(name="Additional Logs", value=log_text, inline=True)
         
         # Vote emojis
         emoji_text = f"📊 {' '.join(config['vote_emojis'])}"
         embed.add_field(name="Vote Emojis", value=emoji_text, inline=True)
+        
+        # Modlog integration info
+        embed.add_field(
+            name="📋 Moderation Log",
+            value="✅ **Integrated** - All actions logged automatically",
+            inline=False
+        )
         
         # Add recommendations
         member_count = ctx.guild.member_count
@@ -627,7 +735,8 @@ class Toxic(commands.Cog):
                        "• Votes needed: 3\n"
                        "• Mode: Kick\n"
                        "• System: Enabled\n"
-                       "• Log channel: Disabled",
+                       "• Additional log channel: Disabled\n\n"
+                       "📋 Modlog integration will remain active.",
             color=discord.Color.red()
         )
         
@@ -649,7 +758,8 @@ class Toxic(commands.Cog):
         
         # Reset to defaults
         await self.config.guild(ctx.guild).clear()
-        await ctx.send("✅ Configuration reset to default values!")
+        await ctx.send("✅ Configuration reset to default values!\n"
+                      "📋 Modlog integration remains active.")
 
     @commands.Cog.listener()
     async def on_reaction_add(self, reaction: discord.Reaction, user: Union[discord.Member, discord.User]):
