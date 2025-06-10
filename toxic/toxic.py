@@ -2,16 +2,25 @@ import asyncio
 import discord
 from datetime import datetime, timedelta
 from typing import Optional, Dict, Union
-from redbot.core import commands, Config, checks, modlog
+from redbot.core import commands, Config, checks
 from redbot.core.utils.chat_formatting import humanize_timedelta
 from redbot.core.bot import Red
+
+# Try to import modlog, but make it optional
+try:
+    from redbot.core import modlog
+    MODLOG_AVAILABLE = True
+except ImportError:
+    MODLOG_AVAILABLE = False
+    modlog = None
 
 class Toxic(commands.Cog):
     """Vote-based kick/ban system for server members with matching roles."""
 
     def __init__(self, bot: Red):
         self.bot = bot
-        self.config = Config.get_conf(self, identifier=1234567890987654321)
+        # Use unique letter-based identifier
+        self.config = Config.get_conf(self, identifier=2847592847592847, force_registration=True)
         
         default_guild = {
             "vote_duration": 300,  # 5 minutes
@@ -20,20 +29,27 @@ class Toxic(commands.Cog):
             "vote_emojis": ["👍", "👎", "🤷"],
             "enabled": True,
             "log_channel": None,
-            "anonvote": False  # Add anonymous voting option
+            "anonvote": False
         }
         
         self.config.register_guild(**default_guild)
         self.active_votes: Dict[int, Dict[int, dict]] = {}
         self._casetype_registered = False
         self._registration_task = None
+        self._is_loaded = False
         
-        # Schedule casetype registration for when bot is ready
-        self._registration_task = asyncio.create_task(self._register_casetypes())
+        # Unique instance identifier to prevent duplicates
+        self._instance_id = f"toxic_instance_{id(self)}"
+        
+        # Only register casetypes if modlog is available
+        if MODLOG_AVAILABLE:
+            self._registration_task = asyncio.create_task(self._register_casetypes())
+        
+        self._is_loaded = True
 
     async def _register_casetypes(self):
         """Register custom case types for modlog integration."""
-        if self._casetype_registered:
+        if not MODLOG_AVAILABLE or self._casetype_registered:
             return
             
         # Wait for bot to be ready
@@ -42,18 +58,18 @@ class Toxic(commands.Cog):
         try:
             # Register vote kick case type
             await modlog.register_casetype(
-                name="votekick",
+                name="toxicvotekick",
                 default_setting=True,
                 image="🗳️",
-                case_str="Vote Kick"
+                case_str="Toxic Vote Kick"
             )
             
             # Register vote ban case type
             await modlog.register_casetype(
-                name="voteban", 
+                name="toxicvoteban", 
                 default_setting=True,
                 image="🗳️",
-                case_str="Vote Ban"
+                case_str="Toxic Vote Ban"
             )
             
             self._casetype_registered = True
@@ -63,10 +79,12 @@ class Toxic(commands.Cog):
             self._casetype_registered = True
         except Exception as e:
             # Log any other errors but don't fail
-            print(f"Failed to register modlog case types: {e}")
+            print(f"Toxic cog: Failed to register modlog case types: {e}")
 
     def cog_unload(self):
         """Clean up active votes and tasks when cog is unloaded."""
+        self._is_loaded = False
+        
         # Cancel registration task if still running
         if self._registration_task and not self._registration_task.done():
             self._registration_task.cancel()
@@ -86,6 +104,10 @@ class Toxic(commands.Cog):
     async def _create_modlog_case(self, guild: discord.Guild, action: str, moderator: discord.Member, 
                                  user: discord.Member, reason: str, vote_data: dict):
         """Create a modlog case for the vote action."""
+        # Skip if modlog not available
+        if not MODLOG_AVAILABLE:
+            return
+            
         try:
             # Count final votes for the case
             message = vote_data["message"]
@@ -107,13 +129,13 @@ class Toxic(commands.Cog):
             
             # Create detailed reason for modlog
             detailed_reason = (
-                f"Vote {action} initiated by {vote_data['initiator']} | "
+                f"Toxic vote {action} initiated by {vote_data['initiator']} | "
                 f"Votes: {yes_votes} yes, {no_votes} no, {abstain_votes} abstain | "
                 f"Original reason: {reason}"
             )
             
             # Determine case type
-            case_type = "voteban" if action == "ban" else "votekick"
+            case_type = "toxicvoteban" if action == "ban" else "toxicvotekick"
             
             # Create the modlog case
             await modlog.create_case(
@@ -130,19 +152,35 @@ class Toxic(commands.Cog):
             
         except Exception as e:
             # Log error but don't fail the action
-            print(f"Failed to create modlog case: {e}")
+            print(f"Toxic cog: Failed to create modlog case: {e}")
 
-    @commands.group(name="toxic")
+    async def _log_vote_result(self, guild: discord.Guild, embed: discord.Embed, vote_data: dict):
+        """Log vote result to configured log channel."""
+        log_channel_id = vote_data["config"]["log_channel"]
+        if log_channel_id:
+            log_channel = guild.get_channel(log_channel_id)
+            if log_channel:
+                try:
+                    await log_channel.send(embed=embed)
+                except discord.HTTPException as e:
+                    print(f"Toxic cog: Failed to send to log channel: {e}")
+
+    @commands.group(name="toxic", invoke_without_command=True)
     @commands.guild_only()
-    async def toxic(self, ctx):
+    async def toxic_main(self, ctx):
         """Toxic vote system commands."""
-        pass
+        if ctx.invoked_subcommand is None:
+            await ctx.send_help(ctx.command)
 
-    @toxic.command(name="vote")
+    @toxic_main.command(name="vote")
     @commands.guild_only()
     @commands.cooldown(1, 60, commands.BucketType.user)
-    async def vote_kick(self, ctx, member: discord.Member, *, reason: str = "No reason provided"):
+    async def vote_member(self, ctx, member: discord.Member, *, reason: str = "No reason provided"):
         """Initiate a vote to kick/ban a member with matching roles."""
+        
+        # Check if cog is properly loaded
+        if not self._is_loaded:
+            return await ctx.send("❌ Toxic cog is not properly loaded. Please contact an administrator.")
         
         # Basic checks
         if not await self.config.guild(ctx.guild).enabled():
@@ -193,7 +231,12 @@ class Toxic(commands.Cog):
             inline=False
         )
         
-        embed.set_footer(text="This action will be logged in the moderation log if successful")
+        footer_text = "Vote results will be logged"
+        if MODLOG_AVAILABLE:
+            footer_text += " in the moderation log"
+        if config["log_channel"]:
+            footer_text += " and custom log channel"
+        embed.set_footer(text=footer_text)
         
         vote_message = await ctx.send(embed=embed)
         
@@ -216,7 +259,8 @@ class Toxic(commands.Cog):
             "start_time": datetime.utcnow(),
             "config": config,
             "voters": set(),
-            "processed": False  # Add flag to prevent duplicate processing
+            "processed": False,
+            "instance_id": self._instance_id
         }
         
         # Start timer
@@ -224,16 +268,20 @@ class Toxic(commands.Cog):
 
     async def _handle_vote_timer(self, guild: discord.Guild, member_id: int):
         """Handle vote timer and execution."""
+        # Check if this instance should handle this vote
         vote_data = self.active_votes.get(guild.id, {}).get(member_id)
-        if not vote_data or vote_data.get("processed", False):
+        if (not vote_data or 
+            vote_data.get("processed", False) or 
+            vote_data.get("instance_id") != self._instance_id):
             return
             
         await asyncio.sleep(vote_data["config"]["vote_duration"])
         
-        # Check if vote still exists and hasn't been processed
+        # Double-check vote still exists and belongs to this instance
         if (guild.id not in self.active_votes or 
             member_id not in self.active_votes[guild.id] or 
-            self.active_votes[guild.id][member_id].get("processed", False)):
+            self.active_votes[guild.id][member_id].get("processed", False) or
+            self.active_votes[guild.id][member_id].get("instance_id") != self._instance_id):
             return
         
         # Mark as processed to prevent duplicates
@@ -243,7 +291,9 @@ class Toxic(commands.Cog):
         try:
             message = await vote_data["message"].channel.fetch_message(vote_data["message"].id)
         except discord.NotFound:
-            del self.active_votes[guild.id][member_id]
+            # Clean up if message is gone
+            if guild.id in self.active_votes and member_id in self.active_votes[guild.id]:
+                del self.active_votes[guild.id][member_id]
             return
         
         # Count votes
@@ -282,26 +332,26 @@ class Toxic(commands.Cog):
             try:
                 # Perform the action
                 if vote_data["config"]["ban_mode"]:
-                    await vote_data["target"].ban(reason=f"Vote ban: {vote_data['reason']}")
+                    await vote_data["target"].ban(reason=f"Toxic vote ban: {vote_data['reason']}")
                 else:
-                    await vote_data["target"].kick(reason=f"Vote kick: {vote_data['reason']}")
+                    await vote_data["target"].kick(reason=f"Toxic vote kick: {vote_data['reason']}")
                 
-                # Create modlog case
-                await self._create_modlog_case(
-                    guild=guild,
-                    action=action,
-                    moderator=guild.me,  # Bot is the moderator
-                    user=vote_data["target"],
-                    reason=vote_data["reason"],
-                    vote_data=vote_data
-                )
+                # Create modlog case if available
+                if MODLOG_AVAILABLE:
+                    await self._create_modlog_case(
+                        guild=guild,
+                        action=action,
+                        moderator=guild.me,
+                        user=vote_data["target"],
+                        reason=vote_data["reason"],
+                        vote_data=vote_data
+                    )
                 
                 embed.color = discord.Color.red()
-                embed.add_field(
-                    name="Result", 
-                    value=f"✅ Vote passed! Member {action}ed.\n📋 Action logged in moderation log.", 
-                    inline=False
-                )
+                result_text = f"✅ Vote passed! Member {action}ed."
+                if MODLOG_AVAILABLE:
+                    result_text += "\n📋 Action logged in moderation log."
+                embed.add_field(name="Result", value=result_text, inline=False)
                 
             except discord.Forbidden:
                 embed.color = discord.Color.orange()
@@ -313,27 +363,21 @@ class Toxic(commands.Cog):
             embed.color = discord.Color.green()
             embed.add_field(name="Result", value="❌ Vote failed.", inline=False)
         
+        # Update message with results
         try:
             await message.edit(embed=embed)
             await message.clear_reactions()
         except discord.HTTPException:
             pass
         
-        # Log result to custom log channel (in addition to modlog)
-        log_channel_id = vote_data["config"]["log_channel"]
-        if log_channel_id:
-            log_channel = guild.get_channel(log_channel_id)
-            if log_channel:
-                try:
-                    await log_channel.send(embed=embed)
-                except discord.HTTPException:
-                    pass
+        # Log result to custom log channel
+        await self._log_vote_result(guild, embed, vote_data)
         
         # Cleanup
         if guild.id in self.active_votes and member_id in self.active_votes[guild.id]:
             del self.active_votes[guild.id][member_id]
 
-    @toxic.command(name="cancel")
+    @toxic_main.command(name="cancel")
     @commands.guild_only()
     async def cancel_vote(self, ctx, member: discord.Member):
         """Cancel an active vote."""
@@ -372,9 +416,9 @@ class Toxic(commands.Cog):
         del self.active_votes[ctx.guild.id][member.id]
         await ctx.send(f"✅ Vote for {member.mention} cancelled.")
 
-    @toxic.command(name="list")
+    @toxic_main.command(name="list")
     @commands.guild_only()
-    async def list_votes(self, ctx):
+    async def list_active_votes(self, ctx):
         """List active votes."""
         guild_votes = self.active_votes.get(ctx.guild.id, {})
         
@@ -401,17 +445,17 @@ class Toxic(commands.Cog):
         
         await ctx.send(embed=embed)
 
-    @toxic.group(name="config")
+    @toxic_main.group(name="config", invoke_without_command=True)
     @commands.guild_only()
     @checks.admin_or_permissions(manage_guild=True)
-    async def config(self, ctx):
+    async def toxic_config(self, ctx):
         """Configure the toxic vote system."""
         if ctx.invoked_subcommand is None:
             await ctx.send_help(ctx.command)
 
-    @config.command(name="duration")
+    @toxic_config.command(name="duration")
     @checks.admin_or_permissions(manage_guild=True)
-    async def set_duration(self, ctx, time: str):
+    async def set_vote_duration(self, ctx, time: str):
         """
         Set vote duration. 
         
@@ -426,16 +470,19 @@ class Toxic(commands.Cog):
         # Parse time string
         time = time.lower().strip()
         
-        # Handle different time formats
-        if time.endswith('s'):
-            seconds = int(time[:-1])
-        elif time.endswith('m'):
-            seconds = int(time[:-1]) * 60
-        elif time.endswith('h'):
-            seconds = int(time[:-1]) * 3600
-        elif time.isdigit():
-            seconds = int(time)
-        else:
+        try:
+            # Handle different time formats
+            if time.endswith('s'):
+                seconds = int(time[:-1])
+            elif time.endswith('m'):
+                seconds = int(time[:-1]) * 60
+            elif time.endswith('h'):
+                seconds = int(time[:-1]) * 3600
+            elif time.isdigit():
+                seconds = int(time)
+            else:
+                return await ctx.send("❌ Invalid time format. Use: `30s`, `5m`, `1h`, or just `300`")
+        except ValueError:
             return await ctx.send("❌ Invalid time format. Use: `30s`, `5m`, `1h`, or just `300`")
         
         # Validate range
@@ -445,9 +492,9 @@ class Toxic(commands.Cog):
         await self.config.guild(ctx.guild).vote_duration.set(seconds)
         await ctx.send(f"✅ Vote duration set to **{humanize_timedelta(seconds=seconds)}**.")
 
-    @config.command(name="votes", aliases=["threshold"])
+    @toxic_config.command(name="votes", aliases=["threshold"])
     @checks.admin_or_permissions(manage_guild=True)
-    async def set_votes_needed(self, ctx, count: int):
+    async def set_votes_required(self, ctx, count: int):
         """
         Set how many YES votes are needed for a vote to pass.
         
@@ -470,9 +517,9 @@ class Toxic(commands.Cog):
         
         await ctx.send(f"✅ Votes needed set to **{count}**.\n{recommendation}")
 
-    @config.command(name="mode", aliases=["action", "punishment"])
+    @toxic_config.command(name="mode", aliases=["action", "punishment"])
     @checks.admin_or_permissions(manage_guild=True)
-    async def set_mode(self, ctx, mode: str):
+    async def set_punishment_mode(self, ctx, mode: str):
         """
         Set the punishment type: 'kick' or 'ban'
         
@@ -515,10 +562,12 @@ class Toxic(commands.Cog):
         
         embed = discord.Embed(
             title="✅ Vote Mode Updated",
-            description=f"Vote punishment set to: **{mode.upper()}**\n\n"
-                       f"📋 All {mode} actions will be logged in the moderation log.",
+            description=f"Vote punishment set to: **{mode.upper()}**",
             color=discord.Color.green() if mode == "kick" else discord.Color.red()
         )
+        
+        if MODLOG_AVAILABLE:
+            embed.description += f"\n📋 All {mode} actions will be logged in the moderation log."
         
         if mode == "ban":
             embed.add_field(
@@ -529,9 +578,9 @@ class Toxic(commands.Cog):
         
         await ctx.send(embed=embed)
 
-    @config.command(name="toggle", aliases=["enable", "disable"])
+    @toxic_config.command(name="toggle", aliases=["enable", "disable"])
     @checks.admin_or_permissions(manage_guild=True)
-    async def toggle_system(self, ctx, state: str = None):
+    async def toggle_toxic_system(self, ctx, state: str = None):
         """
         Enable or disable the toxic vote system.
         
@@ -567,29 +616,28 @@ class Toxic(commands.Cog):
                 name="Next Steps",
                 value="• Users can now start votes with `[p]toxic vote @user reason`\n"
                       "• Check settings with `[p]toxic config view`\n"
-                      "• All actions will be logged in the moderation log",
+                      "• All actions will be logged appropriately",
                 inline=False
             )
         
         await ctx.send(embed=embed)
 
-    @config.command(name="logchannel", aliases=["logs"])
+    @toxic_config.command(name="logchannel", aliases=["logs"])
     @checks.admin_or_permissions(manage_guild=True)
-    async def set_log_channel(self, ctx, channel: Optional[discord.TextChannel] = None):
+    async def set_custom_log_channel(self, ctx, channel: Optional[discord.TextChannel] = None):
         """
-        Set an additional channel where vote results are logged.
-        
-        Note: All kick/ban actions are automatically logged in the moderation log.
-        This setting adds an extra log channel for vote-specific information.
+        Set a channel where vote results are logged.
         
         Usage:
-        - `[p]toxic config logchannel #channel` - Set additional log channel
-        - `[p]toxic config logchannel` - Disable additional logging
+        - `[p]toxic config logchannel #channel` - Set log channel
+        - `[p]toxic config logchannel` - Disable logging
         """
         if channel is None:
             await self.config.guild(ctx.guild).log_channel.set(None)
-            await ctx.send("✅ Additional vote result logging **disabled**.\n"
-                          "📋 Actions will still be logged in the moderation log.")
+            msg = "✅ Vote result logging **disabled**."
+            if MODLOG_AVAILABLE:
+                msg += "\n📋 Actions will still be logged in the moderation log."
+            await ctx.send(msg)
         else:
             # Check if bot can send messages in the channel
             if not channel.permissions_for(ctx.guild.me).send_messages:
@@ -599,18 +647,23 @@ class Toxic(commands.Cog):
             
             # Send test message
             embed = discord.Embed(
-                title="📋 Additional Vote Logging Enabled",
-                description="This channel will now receive detailed vote result logs.\n\n"
-                           "**Note:** Kick/ban actions are also logged in the moderation log.",
+                title="📋 Vote Logging Enabled",
+                description="This channel will now receive detailed vote result logs.",
                 color=discord.Color.blue()
             )
+            if MODLOG_AVAILABLE:
+                embed.description += "\n\n**Note:** Kick/ban actions are also logged in the moderation log."
+            
             await channel.send(embed=embed)
-            await ctx.send(f"✅ Additional vote results will be logged to {channel.mention}.\n"
-                          "📋 Actions will also continue to be logged in the moderation log.")
+            
+            msg = f"✅ Vote results will be logged to {channel.mention}."
+            if MODLOG_AVAILABLE:
+                msg += "\n📋 Actions will also continue to be logged in the moderation log."
+            await ctx.send(msg)
 
-    @config.command(name="preset")
+    @toxic_config.command(name="preset")
     @checks.admin_or_permissions(manage_guild=True)
-    async def config_preset(self, ctx, preset_name: str):
+    async def apply_config_preset(self, ctx, preset_name: str):
         """
         Apply a configuration preset.
         
@@ -667,10 +720,12 @@ class Toxic(commands.Cog):
             description=f"**{preset['description']}**\n\n"
                        f"**Duration:** {humanize_timedelta(seconds=preset['vote_duration'])}\n"
                        f"**Votes needed:** {preset['votes_needed']}\n"
-                       f"**Mode:** {'Ban' if preset['ban_mode'] else 'Kick'}\n\n"
-                       f"📋 All actions will be logged in the moderation log.",
+                       f"**Mode:** {'Ban' if preset['ban_mode'] else 'Kick'}",
             color=discord.Color.orange()
         )
+        
+        if MODLOG_AVAILABLE:
+            embed.description += f"\n\n📋 All actions will be logged in the moderation log."
         
         confirm_msg = await ctx.send(embed=embed)
         await confirm_msg.add_reaction("✅")
@@ -696,15 +751,17 @@ class Toxic(commands.Cog):
         
         embed = discord.Embed(
             title="✅ Preset Applied Successfully",
-            description=f"**'{preset_name.title()}'** configuration is now active!\n\n"
-                       f"📋 All moderation actions will be logged in the moderation log.",
+            description=f"**'{preset_name.title()}'** configuration is now active!",
             color=discord.Color.green()
         )
         
+        if MODLOG_AVAILABLE:
+            embed.description += f"\n\n📋 All moderation actions will be logged in the moderation log."
+        
         await ctx.send(embed=embed)
 
-    @config.command(name="view", aliases=["show", "status"])
-    async def view_config(self, ctx):
+    @toxic_config.command(name="view", aliases=["show", "status"])
+    async def view_toxic_config(self, ctx):
         """View current configuration settings."""
         config = await self.config.guild(ctx.guild).all()
         
@@ -733,7 +790,7 @@ class Toxic(commands.Cog):
         # Log channel
         log_channel = ctx.guild.get_channel(config["log_channel"]) if config["log_channel"] else None
         log_text = f"📋 {log_channel.mention}" if log_channel else "📋 **Disabled**"
-        embed.add_field(name="Additional Logs", value=log_text, inline=True)
+        embed.add_field(name="Log Channel", value=log_text, inline=True)
         
         # Vote emojis
         emoji_text = f"📊 {' '.join(config['vote_emojis'])}"
@@ -744,11 +801,18 @@ class Toxic(commands.Cog):
         embed.add_field(name="Anonymous Voting", value=anon_text, inline=True)
         
         # Modlog integration info
-        embed.add_field(
-            name="📋 Moderation Log",
-            value="✅ **Integrated** - All actions logged automatically",
-            inline=False
-        )
+        if MODLOG_AVAILABLE:
+            embed.add_field(
+                name="📋 Moderation Log",
+                value="✅ **Integrated** - All actions logged automatically",
+                inline=False
+            )
+        else:
+            embed.add_field(
+                name="📋 Moderation Log",
+                value="❌ **Not Available** - Using log channel only",
+                inline=False
+            )
         
         # Add recommendations
         member_count = ctx.guild.member_count
@@ -779,9 +843,9 @@ class Toxic(commands.Cog):
         
         await ctx.send(embed=embed)
 
-    @config.command(name="reset")
+    @toxic_config.command(name="reset")
     @checks.admin_or_permissions(manage_guild=True)
-    async def reset_config(self, ctx):
+    async def reset_toxic_config(self, ctx):
         """Reset all configuration to default values."""
         embed = discord.Embed(
             title="⚠️ Reset Configuration?",
@@ -790,10 +854,13 @@ class Toxic(commands.Cog):
                        "• Votes needed: 3\n"
                        "• Mode: Kick\n"
                        "• System: Enabled\n"
-                       "• Additional log channel: Disabled\n\n"
-                       "📋 Modlog integration will remain active.",
+                       "• Log channel: Disabled\n"
+                       "• Anonymous voting: Disabled",
             color=discord.Color.red()
         )
+        
+        if MODLOG_AVAILABLE:
+            embed.description += f"\n\n📋 Modlog integration will remain active."
         
         confirm_msg = await ctx.send(embed=embed)
         await confirm_msg.add_reaction("✅")
@@ -813,17 +880,20 @@ class Toxic(commands.Cog):
         
         # Reset to defaults
         await self.config.guild(ctx.guild).clear()
-        await ctx.send("✅ Configuration reset to default values!\n"
-                      "📋 Modlog integration remains active.")
+        
+        msg = "✅ Configuration reset to default values!"
+        if MODLOG_AVAILABLE:
+            msg += "\n📋 Modlog integration remains active."
+        await ctx.send(msg)
 
-    @config.command(name="anonvote")
+    @toxic_config.command(name="anonvote")
     @checks.admin_or_permissions(manage_guild=True)
-    async def toggle_anonvote(self, ctx, state: str = None):
+    async def toggle_anonymous_voting(self, ctx, state: str = None):
         """
         Enable or disable anonymous voting.
         
         When enabled, the initiator's name will be hidden in the vote display,
-        but will still be logged in the moderation logs for accountability.
+        but will still be logged for accountability.
         
         Usage: 
         - `[p]toxic config anonvote` - Toggle current state
@@ -856,7 +926,7 @@ class Toxic(commands.Cog):
             embed.add_field(
                 name="How it works",
                 value="• Vote initiator's name will be hidden in vote displays\n"
-                      "• Initiator is still logged in the moderation logs\n"
+                      "• Initiator is still logged for accountability\n"
                       "• Only server admins can see who started votes",
                 inline=False
             )
@@ -866,7 +936,9 @@ class Toxic(commands.Cog):
     @commands.Cog.listener()
     async def on_reaction_add(self, reaction: discord.Reaction, user: Union[discord.Member, discord.User]):
         """Handle vote reactions."""
-        if user.bot or not reaction.message.guild:
+        if (user.bot or 
+            not reaction.message.guild or 
+            not self._is_loaded):
             return
             
         guild_votes = self.active_votes.get(reaction.message.guild.id, {})
@@ -874,7 +946,8 @@ class Toxic(commands.Cog):
         # Find matching vote message
         for member_id, vote_data in guild_votes.items():
             if (vote_data["message"].id == reaction.message.id and 
-                not vote_data.get("processed", False)):
+                not vote_data.get("processed", False) and
+                vote_data.get("instance_id") == self._instance_id):
                 
                 emojis = vote_data["config"]["vote_emojis"]
                 
@@ -904,11 +977,15 @@ class Toxic(commands.Cog):
                             pass
                 break
 
-    @toxic.error
+    @toxic_main.error
     async def toxic_error_handler(self, ctx, error):
         """Handle errors for the toxic command group."""
         if isinstance(error, commands.CheckFailure):
-            if ctx.invoked_subcommand and ctx.invoked_subcommand.parent.name == "config":
+            if (ctx.invoked_subcommand and 
+                hasattr(ctx.invoked_subcommand, 'parent') and 
+                ctx.invoked_subcommand.parent and
+                ctx.invoked_subcommand.parent.name == "config"):
+                
                 embed = discord.Embed(
                     title="❌ Insufficient Permissions",
                     description="You need **Administrator** permissions or **Manage Server** permissions to configure the toxic vote system.",
