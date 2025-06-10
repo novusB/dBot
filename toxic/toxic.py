@@ -11,7 +11,7 @@ class Toxic(commands.Cog):
 
     def __init__(self, bot: Red):
         self.bot = bot
-        self.config = Config.get_conf(self, identifier=1234567890)
+        self.config = Config.get_conf(self, identifier=1234567890987654321)
         
         default_guild = {
             "vote_duration": 300,  # 5 minutes
