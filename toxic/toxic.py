@@ -350,13 +350,13 @@ class Toxic(commands.Cog):
         
         await ctx.send(embed=embed)
 
-    @toxic.group(name="config", invoke_without_command=True)
+    @toxic.group(name="config")
     @commands.guild_only()
     @checks.admin_or_permissions(manage_guild=True)
     async def config(self, ctx):
         """Configure the toxic vote system."""
-        # Show current configuration when no subcommand is provided
-        await self.view_config(ctx)
+        if ctx.invoked_subcommand is None:
+            await ctx.send_help(ctx.command)
 
     @config.command(name="duration")
     @checks.admin_or_permissions(manage_guild=True)
