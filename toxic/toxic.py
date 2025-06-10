@@ -25,12 +25,17 @@ class Toxic(commands.Cog):
         
         self.config.register_guild(**default_guild)
         self.active_votes: Dict[int, Dict[int, dict]] = {}
+        self._casetype_registered = False
+        self._registration_task = None
         
         # Schedule casetype registration for when bot is ready
-        asyncio.create_task(self._register_casetypes())
+        self._registration_task = asyncio.create_task(self._register_casetypes())
 
     async def _register_casetypes(self):
         """Register custom case types for modlog integration."""
+        if self._casetype_registered:
+            return
+            
         # Wait for bot to be ready
         await self.bot.wait_until_ready()
         
@@ -50,16 +55,27 @@ class Toxic(commands.Cog):
                 image="🗳️",
                 case_str="Vote Ban"
             )
+            
+            self._casetype_registered = True
+            
         except RuntimeError:
             # Case types already registered
-            pass
+            self._casetype_registered = True
         except Exception as e:
             # Log any other errors but don't fail
             print(f"Failed to register modlog case types: {e}")
 
     def cog_unload(self):
-        """Clean up active votes when cog is unloaded."""
+        """Clean up active votes and tasks when cog is unloaded."""
+        # Cancel registration task if still running
+        if self._registration_task and not self._registration_task.done():
+            self._registration_task.cancel()
+        
+        # Clear active votes
         self.active_votes.clear()
+        
+        # Reset registration flag
+        self._casetype_registered = False
 
     def _has_matching_roles(self, member1: discord.Member, member2: discord.Member) -> bool:
         """Check if two members have identical roles (excluding @everyone)."""
@@ -199,7 +215,8 @@ class Toxic(commands.Cog):
             "reason": reason,
             "start_time": datetime.utcnow(),
             "config": config,
-            "voters": set()
+            "voters": set(),
+            "processed": False  # Add flag to prevent duplicate processing
         }
         
         # Start timer
@@ -208,15 +225,19 @@ class Toxic(commands.Cog):
     async def _handle_vote_timer(self, guild: discord.Guild, member_id: int):
         """Handle vote timer and execution."""
         vote_data = self.active_votes.get(guild.id, {}).get(member_id)
-        if not vote_data:
+        if not vote_data or vote_data.get("processed", False):
             return
             
         await asyncio.sleep(vote_data["config"]["vote_duration"])
         
-        # Check if vote still exists
-        if guild.id not in self.active_votes or member_id not in self.active_votes[guild.id]:
+        # Check if vote still exists and hasn't been processed
+        if (guild.id not in self.active_votes or 
+            member_id not in self.active_votes[guild.id] or 
+            self.active_votes[guild.id][member_id].get("processed", False)):
             return
         
+        # Mark as processed to prevent duplicates
+        self.active_votes[guild.id][member_id]["processed"] = True
         vote_data = self.active_votes[guild.id][member_id]
         
         try:
@@ -292,18 +313,25 @@ class Toxic(commands.Cog):
             embed.color = discord.Color.green()
             embed.add_field(name="Result", value="❌ Vote failed.", inline=False)
         
-        await message.edit(embed=embed)
-        await message.clear_reactions()
+        try:
+            await message.edit(embed=embed)
+            await message.clear_reactions()
+        except discord.HTTPException:
+            pass
         
         # Log result to custom log channel (in addition to modlog)
         log_channel_id = vote_data["config"]["log_channel"]
         if log_channel_id:
             log_channel = guild.get_channel(log_channel_id)
             if log_channel:
-                await log_channel.send(embed=embed)
+                try:
+                    await log_channel.send(embed=embed)
+                except discord.HTTPException:
+                    pass
         
         # Cleanup
-        del self.active_votes[guild.id][member_id]
+        if guild.id in self.active_votes and member_id in self.active_votes[guild.id]:
+            del self.active_votes[guild.id][member_id]
 
     @toxic.command(name="cancel")
     @commands.guild_only()
@@ -316,11 +344,18 @@ class Toxic(commands.Cog):
         
         vote_data = guild_votes[member.id]
         
+        # Check if already processed
+        if vote_data.get("processed", False):
+            return await ctx.send(f"❌ Vote for {member.mention} has already concluded.")
+        
         # Permission check
         if (ctx.author != vote_data["initiator"] and 
             not ctx.author.guild_permissions.kick_members and 
             ctx.author != ctx.guild.owner):
             return await ctx.send("❌ Only the initiator or moderators can cancel votes.")
+        
+        # Mark as processed to prevent timer from running
+        vote_data["processed"] = True
         
         # Cancel vote
         try:
@@ -343,12 +378,15 @@ class Toxic(commands.Cog):
         """List active votes."""
         guild_votes = self.active_votes.get(ctx.guild.id, {})
         
-        if not guild_votes:
+        # Filter out processed votes
+        active_votes = {k: v for k, v in guild_votes.items() if not v.get("processed", False)}
+        
+        if not active_votes:
             return await ctx.send("✅ No active votes.")
         
         embed = discord.Embed(title="🗳️ Active Votes", color=discord.Color.blue())
         
-        for member_id, vote_data in guild_votes.items():
+        for member_id, vote_data in active_votes.items():
             time_left = (vote_data["start_time"] + 
                         timedelta(seconds=vote_data["config"]["vote_duration"]) - 
                         datetime.utcnow())
@@ -835,7 +873,9 @@ class Toxic(commands.Cog):
         
         # Find matching vote message
         for member_id, vote_data in guild_votes.items():
-            if vote_data["message"].id == reaction.message.id:
+            if (vote_data["message"].id == reaction.message.id and 
+                not vote_data.get("processed", False)):
+                
                 emojis = vote_data["config"]["vote_emojis"]
                 
                 # Remove invalid reactions
