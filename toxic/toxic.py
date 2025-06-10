@@ -107,7 +107,7 @@ class Toxic(commands.Cog):
         # Skip if modlog not available
         if not MODLOG_AVAILABLE:
             return
-            
+        
         try:
             # Count final votes for the case
             message = vote_data["message"]
@@ -115,7 +115,7 @@ class Toxic(commands.Cog):
                 message = await message.channel.fetch_message(message.id)
                 yes_votes = no_votes = abstain_votes = 0
                 emojis = vote_data["config"]["vote_emojis"]
-                
+            
                 for reaction in message.reactions:
                     emoji_str = str(reaction.emoji)
                     if emoji_str == emojis[0]:
@@ -126,17 +126,40 @@ class Toxic(commands.Cog):
                         abstain_votes = reaction.count - 1
             except discord.NotFound:
                 yes_votes = no_votes = abstain_votes = 0
-            
-            # Create detailed reason for modlog
+        
+            # Get additional info
+            additional_info = vote_data.get("additional_info", {})
+        
+            # Format role information
+            shared_roles_str = ", ".join([role.name for role in additional_info.get("shared_roles", [])]) or "None"
+            target_roles_str = ", ".join([role.name for role in additional_info.get("target_roles", [])]) or "None"
+            initiator_roles_str = ", ".join([role.name for role in additional_info.get("initiator_roles", [])]) or "None"
+        
+            # Format membership duration
+            membership_duration = additional_info.get("server_membership_duration")
+            if membership_duration:
+                days = membership_duration.days
+                hours, remainder = divmod(membership_duration.seconds, 3600)
+                minutes, _ = divmod(remainder, 60)
+                duration_str = f"{days} days, {hours} hours, {minutes} minutes"
+            else:
+                duration_str = "Unknown"
+        
+            # Create comprehensive reason for modlog
             detailed_reason = (
                 f"Toxic vote {action} initiated by {vote_data['initiator']} | "
+                f"Channel: #{additional_info.get('vote_channel', {}).name if additional_info.get('vote_channel') else 'Unknown'} | "
+                f"Request time: {additional_info.get('request_timestamp', 'Unknown').strftime('%Y-%m-%d %H:%M:%S UTC') if additional_info.get('request_timestamp') else 'Unknown'} | "
                 f"Votes: {yes_votes} yes, {no_votes} no, {abstain_votes} abstain | "
+                f"Target server time: {duration_str} | "
+                f"Target roles: {target_roles_str} | "
+                f"Shared roles: {shared_roles_str} | "
                 f"Original reason: {reason}"
             )
-            
+        
             # Determine case type
             case_type = "toxicvoteban" if action == "ban" else "toxicvotekick"
-            
+        
             # Create the modlog case
             await modlog.create_case(
                 bot=self.bot,
@@ -149,21 +172,137 @@ class Toxic(commands.Cog):
                 until=None,
                 channel=None
             )
-            
+        
         except Exception as e:
             # Log error but don't fail the action
             print(f"Toxic cog: Failed to create modlog case: {e}")
 
     async def _log_vote_result(self, guild: discord.Guild, embed: discord.Embed, vote_data: dict):
-        """Log vote result to configured log channel."""
+        """Log vote result to configured log channel with detailed information."""
         log_channel_id = vote_data["config"]["log_channel"]
-        if log_channel_id:
-            log_channel = guild.get_channel(log_channel_id)
-            if log_channel:
-                try:
-                    await log_channel.send(embed=embed)
-                except discord.HTTPException as e:
-                    print(f"Toxic cog: Failed to send to log channel: {e}")
+        if not log_channel_id:
+            return
+        
+        log_channel = guild.get_channel(log_channel_id)
+        if not log_channel:
+            return
+        
+        try:
+            # Get additional info
+            additional_info = vote_data.get("additional_info", {})
+        
+            # Create detailed log embed
+            detailed_embed = discord.Embed(
+                title="🗳️ Detailed Vote Log",
+                color=embed.color,
+                timestamp=datetime.utcnow()
+            )
+        
+            # Basic vote information
+            detailed_embed.add_field(
+                name="📊 Vote Results",
+                value=f"**Target:** {vote_data['target'].mention}\n"
+                      f"**Initiator:** {vote_data['initiator'].mention}\n"
+                      f"**Reason:** {vote_data['reason']}\n"
+                      f"**Action:** {'Ban' if vote_data['config']['ban_mode'] else 'Kick'}",
+                inline=False
+            )
+        
+            # Request details
+            request_time = additional_info.get("request_timestamp")
+            vote_channel = additional_info.get("vote_channel")
+            detailed_embed.add_field(
+                name="📍 Request Details",
+                value=f"**Channel:** {vote_channel.mention if vote_channel else 'Unknown'}\n"
+                      f"**Request Time:** {request_time.strftime('%Y-%m-%d %H:%M:%S UTC') if request_time else 'Unknown'}\n"
+                      f"**Vote Duration:** {humanize_timedelta(seconds=vote_data['config']['vote_duration'])}",
+                inline=True
+            )
+        
+            # Target user information
+            target_join_date = additional_info.get("target_join_date")
+            membership_duration = additional_info.get("server_membership_duration")
+        
+            if membership_duration:
+                days = membership_duration.days
+                hours, remainder = divmod(membership_duration.seconds, 3600)
+                minutes, _ = divmod(remainder, 60)
+                duration_str = f"{days} days, {hours} hours, {minutes} minutes"
+            else:
+                duration_str = "Unknown"
+            
+            detailed_embed.add_field(
+                name="👤 Target User Info",
+                value=f"**Joined Server:** {target_join_date.strftime('%Y-%m-%d %H:%M:%S UTC') if target_join_date else 'Unknown'}\n"
+                      f"**Server Membership:** {duration_str}\n"
+                      f"**User ID:** {vote_data['target'].id}",
+                inline=True
+            )
+        
+            # Role information
+            target_roles = additional_info.get("target_roles", [])
+            initiator_roles = additional_info.get("initiator_roles", [])
+            shared_roles = additional_info.get("shared_roles", [])
+        
+            target_roles_str = ", ".join([role.name for role in target_roles]) or "None"
+            initiator_roles_str = ", ".join([role.name for role in initiator_roles]) or "None"
+            shared_roles_str = ", ".join([role.name for role in shared_roles]) or "None"
+        
+            detailed_embed.add_field(
+                name="🎭 Role Information",
+                value=f"**Target Roles:** {target_roles_str}\n"
+                      f"**Initiator Roles:** {initiator_roles_str}\n"
+                      f"**Shared Roles:** {shared_roles_str}",
+                inline=False
+            )
+        
+            # Vote statistics
+            message = vote_data["message"]
+            try:
+                message = await message.channel.fetch_message(message.id)
+                yes_votes = no_votes = abstain_votes = 0
+                emojis = vote_data["config"]["vote_emojis"]
+            
+                for reaction in message.reactions:
+                    emoji_str = str(reaction.emoji)
+                    if emoji_str == emojis[0]:
+                        yes_votes = reaction.count - 1
+                    elif emoji_str == emojis[1]:
+                        no_votes = reaction.count - 1
+                    elif emoji_str == emojis[2]:
+                        abstain_votes = reaction.count - 1
+            except discord.NotFound:
+                yes_votes = no_votes = abstain_votes = 0
+            
+            detailed_embed.add_field(
+                name="📈 Vote Statistics",
+                value=f"**Yes Votes:** {yes_votes}\n"
+                      f"**No Votes:** {no_votes}\n"
+                      f"**Abstain Votes:** {abstain_votes}\n"
+                      f"**Votes Required:** {vote_data['config']['votes_needed']}\n"
+                      f"**Total Participants:** {len(vote_data.get('voters', set()))}",
+                inline=True
+            )
+        
+            # System information
+            detailed_embed.add_field(
+                name="⚙️ System Info",
+                value=f"**Anonymous Mode:** {'Enabled' if vote_data['config']['anonvote'] else 'Disabled'}\n"
+                      f"**Vote ID:** {vote_data.get('instance_id', 'Unknown')}\n"
+                      f"**Cog Version:** Toxic v2.0",
+                inline=True
+            )
+        
+            # Add footer with additional context
+            detailed_embed.set_footer(
+                text=f"Vote processed at {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S UTC')} | "
+                     f"Modlog: {'Available' if MODLOG_AVAILABLE else 'Unavailable'}"
+            )
+        
+            await log_channel.send(embed=detailed_embed)
+        
+        except discord.HTTPException as e:
+            print(f"Toxic cog: Failed to send detailed log: {e}")
 
     @commands.group(name="toxic", invoke_without_command=True)
     @commands.guild_only()
@@ -208,6 +347,28 @@ class Toxic(commands.Cog):
         
         # Get settings
         config = await self.config.guild(ctx.guild).all()
+        
+        # Get detailed information for logging
+        vote_channel = ctx.channel
+        initiator_roles = [role for role in ctx.author.roles if role != ctx.guild.default_role]
+        target_roles = [role for role in member.roles if role != member.guild.default_role]
+        shared_roles = [role for role in initiator_roles if role in target_roles]
+
+        # Calculate how long target has been in server
+        target_join_date = member.joined_at
+        server_membership_duration = datetime.utcnow() - target_join_date if target_join_date else None
+
+        # Store additional logging info
+        additional_info = {
+            "vote_channel": vote_channel,
+            "initiator_roles": initiator_roles,
+            "target_roles": target_roles,
+            "shared_roles": shared_roles,
+            "target_join_date": target_join_date,
+            "server_membership_duration": server_membership_duration,
+            "request_timestamp": datetime.utcnow()
+        }
+        
         action = "ban" if config["ban_mode"] else "kick"
         
         # Create vote embed
@@ -218,7 +379,7 @@ class Toxic(commands.Cog):
                        f"**Reason:** {reason}\n"
                        f"**Action:** {action.title()}\n\n"
                        f"**Votes needed:** {config['votes_needed']}\n"
-                       f"**Time remaining:** {humanize_timedelta(seconds=config['vote_duration'])}",
+                       f"**Time remaining:** <t:{int((datetime.utcnow() + timedelta(seconds=config['vote_duration'])).timestamp())}:R>",
             color=discord.Color.orange(),
             timestamp=datetime.utcnow()
         )
@@ -260,7 +421,8 @@ class Toxic(commands.Cog):
             "config": config,
             "voters": set(),
             "processed": False,
-            "instance_id": self._instance_id
+            "instance_id": self._instance_id,
+            "additional_info": additional_info
         }
         
         # Start timer
@@ -540,7 +702,6 @@ class Toxic(commands.Cog):
                            "This means successful votes will **permanently ban** users from the server.\n"
                            "Are you sure you want to continue?",
                 color=discord.Color.red()
-            )
             
             confirm_msg = await ctx.send(embed=embed)
             await confirm_msg.add_reaction("✅")
