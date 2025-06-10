@@ -19,7 +19,8 @@ class Toxic(commands.Cog):
             "ban_mode": False,  # False = kick, True = ban
             "vote_emojis": ["👍", "👎", "🤷"],
             "enabled": True,
-            "log_channel": None
+            "log_channel": None,
+            "anonvote": False  # Add anonymous voting option
         }
         
         self.config.register_guild(**default_guild)
@@ -159,7 +160,7 @@ class Toxic(commands.Cog):
         embed = discord.Embed(
             title=f"🗳️ Vote to {action.title()} {member.display_name}",
             description=f"**Target:** {member.mention}\n"
-                       f"**Initiated by:** {ctx.author.mention}\n"
+                       f"**Initiated by:** {'Anonymous' if config['anonvote'] else ctx.author.mention}\n"
                        f"**Reason:** {reason}\n"
                        f"**Action:** {action.title()}\n\n"
                        f"**Votes needed:** {config['votes_needed']}\n"
@@ -240,7 +241,13 @@ class Toxic(commands.Cog):
         # Create result embed
         embed = discord.Embed(title="🗳️ Vote Results", timestamp=datetime.utcnow())
         embed.add_field(name="Target", value=vote_data["target"].mention, inline=True)
-        embed.add_field(name="Initiator", value=vote_data["initiator"].mention, inline=True)
+
+        # Only show initiator if anonymous voting is disabled
+        if not vote_data["config"]["anonvote"]:
+            embed.add_field(name="Initiator", value=vote_data["initiator"].mention, inline=True)
+        else:
+            embed.add_field(name="Initiator", value="Anonymous", inline=True)
+
         embed.add_field(name="Reason", value=vote_data["reason"], inline=False)
         embed.add_field(name="Yes", value=str(yes_votes), inline=True)
         embed.add_field(name="No", value=str(no_votes), inline=True)
@@ -693,6 +700,10 @@ class Toxic(commands.Cog):
         # Vote emojis
         emoji_text = f"📊 {' '.join(config['vote_emojis'])}"
         embed.add_field(name="Vote Emojis", value=emoji_text, inline=True)
+
+        # Anonymous voting
+        anon_text = "🔍 **ENABLED**" if config["anonvote"] else "👁️ **DISABLED**"
+        embed.add_field(name="Anonymous Voting", value=anon_text, inline=True)
         
         # Modlog integration info
         embed.add_field(
@@ -766,6 +777,53 @@ class Toxic(commands.Cog):
         await self.config.guild(ctx.guild).clear()
         await ctx.send("✅ Configuration reset to default values!\n"
                       "📋 Modlog integration remains active.")
+
+    @config.command(name="anonvote")
+    @checks.admin_or_permissions(manage_guild=True)
+    async def toggle_anonvote(self, ctx, state: str = None):
+        """
+        Enable or disable anonymous voting.
+        
+        When enabled, the initiator's name will be hidden in the vote display,
+        but will still be logged in the moderation logs for accountability.
+        
+        Usage: 
+        - `[p]toxic config anonvote` - Toggle current state
+        - `[p]toxic config anonvote on` - Force enable
+        - `[p]toxic config anonvote off` - Force disable
+        """
+        current = await self.config.guild(ctx.guild).anonvote()
+    
+        if state is None:
+            new_state = not current
+        elif state.lower() in ["on", "enable", "enabled", "true", "yes"]:
+            new_state = True
+        elif state.lower() in ["off", "disable", "disabled", "false", "no"]:
+            new_state = False
+        else:
+            return await ctx.send("❌ Invalid state. Use `on`, `off`, or leave empty to toggle.")
+    
+        await self.config.guild(ctx.guild).anonvote.set(new_state)
+    
+        status = "**ENABLED** ✅" if new_state else "**DISABLED** ❌"
+        color = discord.Color.green() if new_state else discord.Color.red()
+    
+        embed = discord.Embed(
+            title="🔍 Anonymous Voting",
+            description=f"Anonymous voting is now {status}",
+            color=color
+        )
+    
+        if new_state:
+            embed.add_field(
+                name="How it works",
+                value="• Vote initiator's name will be hidden in vote displays\n"
+                      "• Initiator is still logged in the moderation logs\n"
+                      "• Only server admins can see who started votes",
+                inline=False
+            )
+    
+        await ctx.send(embed=embed)
 
     @commands.Cog.listener()
     async def on_reaction_add(self, reaction: discord.Reaction, user: Union[discord.Member, discord.User]):
