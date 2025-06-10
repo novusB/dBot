@@ -702,6 +702,7 @@ class Toxic(commands.Cog):
                            "This means successful votes will **permanently ban** users from the server.\n"
                            "Are you sure you want to continue?",
                 color=discord.Color.red()
+            )
             
             confirm_msg = await ctx.send(embed=embed)
             await confirm_msg.add_reaction("✅")
