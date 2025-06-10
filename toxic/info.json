@@ -1,5 +1,5 @@
 {
-  "author": ["Your Name"],
+  "author": ["novusB"],
   "install_msg": "Toxic cog installed! Use `[p]help toxic` to see commands. Configure with `[p]toxic config view`.",
   "name": "Toxic",
   "short": "Vote-based kick/ban system with role matching.",
