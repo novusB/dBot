@@ -193,7 +193,8 @@ class Toxic(commands.Cog):
                 value=f"**Target:** {vote_data['target'].mention}\n"
                       f"**Initiator:** {vote_data['initiator'].mention}\n"
                       f"**Reason:** {vote_data['reason']}\n"
-                      f"**Action:** {'Ban' if vote_data['config']['ban_mode'] else 'Kick'}",
+                      f"**Action:** {'Ban' if vote_data['config']['ban_mode'] else 'Kick'}\n"
+                      f"**Result:** {'✅ PASSED' if vote_data.get('vote_passed', False) else '❌ FAILED'}",
                 inline=False
             )
         
@@ -211,25 +212,9 @@ class Toxic(commands.Cog):
             # Target user information
             detailed_embed.add_field(
                 name="👤 Target User Info",
-                value=f"**User ID:** {vote_data['target'].id}",
+                value=f"**Username:** {vote_data['target'].name}\n"
+                      f"**User ID:** {vote_data['target'].id}",
                 inline=True
-            )
-        
-            # Role information
-            target_roles = additional_info.get("target_roles", [])
-            initiator_roles = additional_info.get("initiator_roles", [])
-            shared_roles = additional_info.get("shared_roles", [])
-        
-            target_roles_str = ", ".join([role.name for role in target_roles]) or "None"
-            initiator_roles_str = ", ".join([role.name for role in initiator_roles]) or "None"
-            shared_roles_str = ", ".join([role.name for role in shared_roles]) or "None"
-        
-            detailed_embed.add_field(
-                name="🎭 Role Information",
-                value=f"**Target Roles:** {target_roles_str}\n"
-                      f"**Initiator Roles:** {initiator_roles_str}\n"
-                      f"**Shared Roles:** {shared_roles_str}",
-                inline=False
             )
         
             # Vote statistics
@@ -405,8 +390,8 @@ class Toxic(commands.Cog):
         if (not vote_data or 
             vote_data.get("processed", False) or 
             vote_data.get("instance_id") != self._instance_id):
-            return
-            
+        return
+        
         await asyncio.sleep(vote_data["config"]["vote_duration"])
         
         # Double-check vote still exists and belongs to this instance
@@ -414,12 +399,24 @@ class Toxic(commands.Cog):
             member_id not in self.active_votes[guild.id] or 
             self.active_votes[guild.id][member_id].get("processed", False) or
             self.active_votes[guild.id][member_id].get("instance_id") != self._instance_id):
+        return
+    
+        # Process the vote result (timer completion)
+        await self._process_vote_result(guild, member_id, early_completion=False)
+
+    async def _process_vote_result(self, guild: discord.Guild, member_id: int, early_completion: bool = False):
+        """Process vote results and execute actions."""
+        # Check if this instance should handle this vote
+        vote_data = self.active_votes.get(guild.id, {}).get(member_id)
+        if (not vote_data or 
+            vote_data.get("processed", False) or 
+            vote_data.get("instance_id") != self._instance_id):
             return
-        
+    
         # Mark as processed to prevent duplicates
-        self.active_votes[guild.id][member_id]["processed"] = True
-        vote_data = self.active_votes[guild.id][member_id]
-        
+        if not vote_data.get("processed", False):
+            vote_data["processed"] = True
+    
         try:
             message = await vote_data["message"].channel.fetch_message(vote_data["message"].id)
         except discord.NotFound:
@@ -427,11 +424,11 @@ class Toxic(commands.Cog):
             if guild.id in self.active_votes and member_id in self.active_votes[guild.id]:
                 del self.active_votes[guild.id][member_id]
             return
-        
+    
         # Count votes
         yes_votes = no_votes = abstain_votes = 0
         emojis = vote_data["config"]["vote_emojis"]
-        
+    
         for reaction in message.reactions:
             emoji_str = str(reaction.emoji)
             if emoji_str == emojis[0]:
@@ -440,9 +437,12 @@ class Toxic(commands.Cog):
                 no_votes = reaction.count - 1
             elif emoji_str == emojis[2]:
                 abstain_votes = reaction.count - 1
-        
+    
         # Create result embed
-        embed = discord.Embed(title="🗳️ Vote Results", timestamp=datetime.now(timezone(timedelta(hours=-5))))
+        embed = discord.Embed(
+            title="🗳️ Vote Results" + (" (Early Completion)" if early_completion else ""), 
+            timestamp=datetime.now(timezone(timedelta(hours=-5)))
+        )
         embed.add_field(name="Target", value=vote_data["target"].mention, inline=True)
 
         # Only show initiator if anonymous voting is disabled
@@ -455,19 +455,24 @@ class Toxic(commands.Cog):
         embed.add_field(name="Yes", value=str(yes_votes), inline=True)
         embed.add_field(name="No", value=str(no_votes), inline=True)
         embed.add_field(name="Abstain", value=str(abstain_votes), inline=True)
-        
+    
         # Execute action if vote passed
         votes_needed = vote_data["config"]["votes_needed"]
-        if yes_votes >= votes_needed and yes_votes > no_votes:
+        vote_passed = yes_votes >= votes_needed and yes_votes > no_votes
+    
+        # Store vote result for logging
+        vote_data["vote_passed"] = vote_passed
+    
+        if vote_passed:
             action = "ban" if vote_data["config"]["ban_mode"] else "kick"
-            
+        
             try:
                 # Perform the action
                 if vote_data["config"]["ban_mode"]:
                     await vote_data["target"].ban(reason=f"Toxic vote ban: {vote_data['reason']}")
                 else:
                     await vote_data["target"].kick(reason=f"Toxic vote kick: {vote_data['reason']}")
-                
+            
                 # Create modlog case if available
                 if MODLOG_AVAILABLE:
                     await self._create_modlog_case(
@@ -478,13 +483,15 @@ class Toxic(commands.Cog):
                         reason=vote_data["reason"],
                         vote_data=vote_data
                     )
-                
+            
                 embed.color = discord.Color.red()
                 result_text = f"✅ Vote passed! Member {action}ed."
+                if early_completion:
+                    result_text += f"\n🚀 Vote completed early ({yes_votes}/{votes_needed} votes reached)"
                 if MODLOG_AVAILABLE:
                     result_text += "\n📋 Action logged in moderation log."
                 embed.add_field(name="Result", value=result_text, inline=False)
-                
+            
             except discord.Forbidden:
                 embed.color = discord.Color.orange()
                 embed.add_field(name="Result", value=f"❌ No permission to {action}!", inline=False)
@@ -493,18 +500,21 @@ class Toxic(commands.Cog):
                 embed.add_field(name="Result", value=f"❌ Failed to {action}: {e}", inline=False)
         else:
             embed.color = discord.Color.green()
-            embed.add_field(name="Result", value="❌ Vote failed.", inline=False)
-        
+            result_text = "❌ Vote failed."
+            if early_completion:
+                result_text += f"\n⏰ Vote ended early (insufficient support)"
+            embed.add_field(name="Result", value=result_text, inline=False)
+    
         # Update message with results
         try:
             await message.edit(embed=embed)
             await message.clear_reactions()
         except discord.HTTPException:
             pass
-        
+    
         # Log result to custom log channel
         await self._log_vote_result(guild, embed, vote_data)
-        
+    
         # Cleanup
         if guild.id in self.active_votes and member_id in self.active_votes[guild.id]:
             del self.active_votes[guild.id][member_id]
@@ -1092,17 +1102,17 @@ class Toxic(commands.Cog):
             not reaction.message.guild or 
             not self._is_loaded):
             return
-            
-        guild_votes = self.active_votes.get(reaction.message.guild.id, {})
         
+        guild_votes = self.active_votes.get(reaction.message.guild.id, {})
+    
         # Find matching vote message
         for member_id, vote_data in guild_votes.items():
             if (vote_data["message"].id == reaction.message.id and 
                 not vote_data.get("processed", False) and
                 vote_data.get("instance_id") == self._instance_id):
-                
+            
                 emojis = vote_data["config"]["vote_emojis"]
-                
+            
                 # Remove invalid reactions
                 if str(reaction.emoji) not in emojis:
                     try:
@@ -1110,7 +1120,7 @@ class Toxic(commands.Cog):
                     except discord.HTTPException:
                         pass
                     return
-                
+            
                 # Prevent double voting
                 if user.id in vote_data["voters"]:
                     try:
@@ -1118,7 +1128,7 @@ class Toxic(commands.Cog):
                     except discord.HTTPException:
                         pass
                     return
-                
+            
                 # Record vote and remove other reactions from this user
                 vote_data["voters"].add(user.id)
                 for emoji in emojis:
@@ -1127,6 +1137,38 @@ class Toxic(commands.Cog):
                             await reaction.message.remove_reaction(emoji, user)
                         except discord.HTTPException:
                             pass
+            
+                # Check if vote threshold has been reached
+                try:
+                    message = await reaction.message.channel.fetch_message(reaction.message.id)
+                    yes_votes = no_votes = abstain_votes = 0
+                
+                    for msg_reaction in message.reactions:
+                        emoji_str = str(msg_reaction.emoji)
+                        if emoji_str == emojis[0]:
+                            yes_votes = msg_reaction.count - 1
+                        elif emoji_str == emojis[1]:
+                            no_votes = msg_reaction.count - 1
+                        elif emoji_str == emojis[2]:
+                            abstain_votes = msg_reaction.count - 1
+                
+                    votes_needed = vote_data["config"]["votes_needed"]
+                
+                    # If vote threshold reached, process immediately
+                    if yes_votes >= votes_needed and yes_votes > no_votes:
+                        # Mark as processed to prevent timer from also processing
+                        vote_data["processed"] = True
+                    
+                        # Process the vote immediately
+                        asyncio.create_task(self._process_vote_result(reaction.message.guild, member_id, early_completion=True))
+                    
+                except discord.NotFound:
+                    # Message was deleted, clean up
+                    if reaction.message.guild.id in self.active_votes and member_id in self.active_votes[reaction.message.guild.id]:
+                        del self.active_votes[reaction.message.guild.id][member_id]
+                except Exception as e:
+                    print(f"Toxic cog: Error checking vote threshold: {e}")
+            
                 break
 
     @toxic_main.error
