@@ -1,6 +1,6 @@
 import asyncio
 import discord
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional, Dict, Union
 from redbot.core import commands, Config, checks
 from redbot.core.utils.chat_formatting import humanize_timedelta
@@ -153,7 +153,7 @@ class Toxic(commands.Cog):
             await modlog.create_case(
                 bot=self.bot,
                 guild=guild,
-                created_at=datetime.utcnow(),
+                created_at=datetime.now(timezone(timedelta(hours=-5))),
                 action_type=case_type,
                 user=user,
                 moderator=moderator,
@@ -184,7 +184,7 @@ class Toxic(commands.Cog):
             detailed_embed = discord.Embed(
                 title="🗳️ Detailed Vote Log",
                 color=embed.color,
-                timestamp=datetime.utcnow()
+                timestamp=datetime.now(timezone(timedelta(hours=-5)))
             )
         
             # Basic vote information
@@ -271,7 +271,7 @@ class Toxic(commands.Cog):
         
             # Add footer with additional context
             detailed_embed.set_footer(
-                text=f"Vote processed at {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S UTC')} | "
+                text=f"Vote processed at {datetime.now(timezone(timedelta(hours=-5))).strftime('%Y-%m-%d %H:%M:%S UTC')} | "
                      f"Modlog: {'Available' if MODLOG_AVAILABLE else 'Unavailable'}"
             )
         
@@ -336,7 +336,7 @@ class Toxic(commands.Cog):
             "initiator_roles": initiator_roles,
             "target_roles": target_roles,
             "shared_roles": shared_roles,
-            "request_timestamp": datetime.utcnow()
+            "request_timestamp": datetime.now(timezone(timedelta(hours=-5)))
         }
         
         action = "ban" if config["ban_mode"] else "kick"
@@ -349,9 +349,9 @@ class Toxic(commands.Cog):
                        f"**Reason:** {reason}\n"
                        f"**Action:** {action.title()}\n\n"
                        f"**Votes needed:** {config['votes_needed']}\n"
-                       f"**Time remaining:** <t:{int((datetime.utcnow() + timedelta(seconds=config['vote_duration'])).timestamp())}:R>",
+                       f"**Time remaining:** <t:{int((datetime.now(timezone(timedelta(hours=-5))) + timedelta(seconds=config['vote_duration'])).timestamp())}:R>",
             color=discord.Color.orange(),
-            timestamp=datetime.utcnow()
+            timestamp=datetime.now(timezone(timedelta(hours=-5)))
         )
         
         embed.add_field(
@@ -387,7 +387,7 @@ class Toxic(commands.Cog):
             "target": member,
             "initiator": ctx.author,
             "reason": reason,
-            "start_time": datetime.utcnow(),
+            "start_time": datetime.now(timezone(timedelta(hours=-5))),
             "config": config,
             "voters": set(),
             "processed": False,
@@ -442,7 +442,7 @@ class Toxic(commands.Cog):
                 abstain_votes = reaction.count - 1
         
         # Create result embed
-        embed = discord.Embed(title="🗳️ Vote Results", timestamp=datetime.utcnow())
+        embed = discord.Embed(title="🗳️ Vote Results", timestamp=datetime.now(timezone(timedelta(hours=-5))))
         embed.add_field(name="Target", value=vote_data["target"].mention, inline=True)
 
         # Only show initiator if anonymous voting is disabled
@@ -565,7 +565,7 @@ class Toxic(commands.Cog):
         for member_id, vote_data in active_votes.items():
             time_left = (vote_data["start_time"] + 
                         timedelta(seconds=vote_data["config"]["vote_duration"]) - 
-                        datetime.utcnow())
+                        datetime.now(timezone(timedelta(hours=-5))))
             
             embed.add_field(
                 name=vote_data["target"].display_name,
@@ -579,9 +579,29 @@ class Toxic(commands.Cog):
 
     @toxic_main.group(name="config", invoke_without_command=True)
     @commands.guild_only()
-    @checks.admin_or_permissions(manage_guild=True)
     async def toxic_config(self, ctx):
         """Configure the toxic vote system."""
+        # Check permissions first and provide feedback
+        if not (ctx.author.guild_permissions.administrator or 
+                ctx.author.guild_permissions.manage_guild or
+                await self.bot.is_owner(ctx.author)):
+            embed = discord.Embed(
+                title="❌ Insufficient Permissions",
+                description="You need **Administrator** permissions or **Manage Server** permissions to configure the toxic vote system.",
+                color=discord.Color.red()
+            )
+            embed.add_field(
+                name="Required Permissions",
+                value="• Administrator\n• Manage Server",
+                inline=True
+            )
+            embed.add_field(
+                name="Available Commands",
+                value="• `[p]toxic vote @user reason`\n• `[p]toxic list`\n• `[p]toxic cancel @user` (if you started the vote)",
+                inline=True
+            )
+            return await ctx.send(embed=embed)
+    
         if ctx.invoked_subcommand is None:
             await ctx.send_help(ctx.command)
 
@@ -900,7 +920,7 @@ class Toxic(commands.Cog):
         embed = discord.Embed(
             title="🔧 Toxic Vote System Configuration",
             color=discord.Color.blue() if config["enabled"] else discord.Color.red(),
-            timestamp=datetime.utcnow()
+            timestamp=datetime.now(timezone(timedelta(hours=-5)))
         )
         
         # Status
