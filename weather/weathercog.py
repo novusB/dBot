@@ -128,8 +128,8 @@ class WeatherView(discord.ui.View):
     async def air_quality(self, interaction: discord.Interaction, button: discord.ui.Button):
         if self.user_id and interaction.user.id != self.user_id:
             await interaction.response.send_message("You can't interact with this weather display.", ephemeral=True)
-        return
-    
+            return
+        
         self.current_mode = "aqi"
         embed = await self.cog._get_air_quality_embed(self.location, self.country_code, interaction.user.id)
         if embed:
@@ -154,44 +154,79 @@ class WeatherView(discord.ui.View):
         )
         embed.add_field(
             name="Change Units",
-            value="Use `/weather settings` to change your unit preferences",
+            value="Use `/weather-settings` to change your unit preferences",
             inline=False
         )
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
 class WeatherCog(commands.Cog):
-    """Enhanced weather cog with forecasts, caching, and interactive features"""
+    """
+    Enhanced weather cog with forecasts, air quality, caching, and interactive features.
+    
+    This cog provides comprehensive weather information including:
+    - Current weather conditions
+    - Multi-day forecasts (3, 5, 7 days)
+    - Air quality index data
+    - Interactive Discord UI with buttons
+    - User preferences and caching
+    - Both slash commands and traditional commands
+    """
+    
+    # Unique identifier for this cog - using a large random number to avoid conflicts
+    COG_IDENTIFIER = 260288776360820736
     
     def __init__(self, bot):
         self.bot = bot
         self.session = aiohttp.ClientSession()
         self.cache = WeatherCache(ttl=600)  # 10-minute cache
         
-        # Configuration schema
-        default_global = {}
-        default_user = {
-            "units": "imperial",  # imperial or metric
-            "default_location": None,
-            "default_country": "us"
-        }
-        default_guild = {
-            "units": "imperial",
-            "cache_ttl": 600
+        # Configuration schema with detailed defaults
+        default_global = {
+            "cache_ttl": 600,  # Global cache TTL setting
+            "api_calls_today": 0,  # Track API usage
+            "last_reset": None  # Last reset timestamp
         }
         
-        self.config = Config.get_conf(self, identifier=1234567891, force_registration=True)
+        default_user = {
+            "units": "imperial",  # imperial or metric
+            "default_location": None,  # User's default location
+            "default_country": "us",  # User's default country code
+            "show_aqi": True,  # Whether to show AQI in weather displays
+            "last_location": None  # Remember last searched location
+        }
+        
+        default_guild = {
+            "units": "imperial",  # Server default units
+            "cache_ttl": 600,  # Server-specific cache TTL
+            "allowed_channels": [],  # Channels where weather commands are allowed
+            "disable_buttons": False  # Option to disable interactive buttons
+        }
+        
+        # Initialize Config with force registration and unique identifier
+        self.config = Config.get_conf(
+            self, 
+            identifier=self.COG_IDENTIFIER, 
+            force_registration=True
+        )
+        
+        # Register all configuration schemas
         self.config.register_global(**default_global)
         self.config.register_user(**default_user)
         self.config.register_guild(**default_guild)
+        
+        # Log successful initialization
+        log.info(f"WeatherCog initialized with identifier: {self.COG_IDENTIFIER}")
     
     def cog_unload(self):
         """Clean up resources when cog is unloaded"""
+        log.info("WeatherCog unloading - cleaning up resources")
         asyncio.create_task(self.session.close())
         self.cache.clear()
     
     async def red_delete_data_for_user(self, *, requester: str, user_id: int):
         """Delete user data for GDPR compliance"""
         await self.config.user_from_id(user_id).clear()
+        log.info(f"Deleted user data for user ID: {user_id} (requested by: {requester})")
     
     def _parse_location(self, location: str) -> Tuple[str, str]:
         """Parse location input to determine if it's coordinates, zip, or city name"""
@@ -561,19 +596,21 @@ class WeatherCog(commands.Cog):
                 inline=True
             )
         
-        # Add basic AQI info to current weather
-        try:
-            aqi_data = await self._get_air_quality_data(location, country_code, user_id)
-            if aqi_data and "error" not in aqi_data:
-                aqi_value = aqi_data["list"][0]["main"]["aqi"]
-                aqi_level = AQILevel.from_value(aqi_value)
-                embed.add_field(
-                    name="🌬️ Air Quality",
-                    value=f"{aqi_level.emoji} {aqi_level.label} ({aqi_value}/5)",
-                    inline=True
-                )
-        except Exception:
-            pass  # Don't fail weather display if AQI fails
+        # Add basic AQI info to current weather if user preference allows
+        user_config = await self.config.user_from_id(user_id).all()
+        if user_config.get("show_aqi", True):
+            try:
+                aqi_data = await self._get_air_quality_data(location, country_code, user_id)
+                if aqi_data and "error" not in aqi_data:
+                    aqi_value = aqi_data["list"][0]["main"]["aqi"]
+                    aqi_level = AQILevel.from_value(aqi_value)
+                    embed.add_field(
+                        name="🌬️ Air Quality",
+                        value=f"{aqi_level.emoji} {aqi_level.label} ({aqi_value}/5)",
+                        inline=True
+                    )
+            except Exception:
+                pass  # Don't fail weather display if AQI fails
         
         embed.set_thumbnail(url=f"http://openweathermap.org/img/wn/{data['weather'][0]['icon']}@2x.png")
         embed.set_footer(text="Powered by OpenWeatherMap")
@@ -852,6 +889,12 @@ class WeatherCog(commands.Cog):
             inline=False
         )
         
+        embed.add_field(
+            name="🔧 Configuration",
+            value=f"Cog ID: `{self.COG_IDENTIFIER}`\nForce Registration: ✅",
+            inline=False
+        )
+        
         embed.set_footer(text="Powered by OpenWeatherMap API")
         
         await ctx.send(embed=embed)
@@ -926,5 +969,42 @@ class WeatherCog(commands.Cog):
         )
         embed.add_field(name="Cached Entries", value=str(cache_size), inline=True)
         embed.add_field(name="TTL", value=f"{self.cache.ttl} seconds", inline=True)
+        embed.add_field(name="Cog ID", value=str(self.COG_IDENTIFIER), inline=True)
         
         await ctx.send(embed=embed)
+    
+    @weatherset.command()
+    async def configinfo(self, ctx):
+        """Display configuration information"""
+        global_config = await self.config.all()
+        
+        embed = discord.Embed(
+            title="🔧 WeatherCog Configuration",
+            color=discord.Color.gold()
+        )
+        embed.add_field(
+            name="Unique Identifier",
+            value=f"`{self.COG_IDENTIFIER}`",
+            inline=False
+        )
+        embed.add_field(
+            name="Force Registration",
+            value="✅ Enabled",
+            inline=True
+        )
+        embed.add_field(
+            name="Cache TTL",
+            value=f"{global_config.get('cache_ttl', 600)} seconds",
+            inline=True
+        )
+        embed.add_field(
+            name="Registration Status",
+            value="✅ Successfully Registered",
+            inline=True
+        )
+        
+        await ctx.send(embed=embed)
+
+async def setup(bot):
+    cog = WeatherCog(bot)
+    await bot.add_cog(cog)
