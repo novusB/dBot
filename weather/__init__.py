@@ -1,9 +1,13 @@
-from .weathercog import WeatherCog # Import the main cog class from weathercog.py
+from .weathercog import WeatherCog
 
 async def setup(bot):
-    """
-    Sets up the WeatherCog when Red starts.
-    This function is called by Red to load the cog.
-    """
-    await bot.add_cog(WeatherCog(bot))
-    print("WeatherCog loaded successfully!") # Optional: for confirmation in console
+    """Setup function for the enhanced WeatherCog"""
+    cog = WeatherCog(bot)
+    await bot.add_cog(cog)
+    
+    # Register slash commands
+    try:
+        synced = await bot.tree.sync()
+        print(f"Enhanced WeatherCog loaded successfully! Synced {len(synced)} slash commands.")
+    except Exception as e:
+        print(f"Enhanced WeatherCog loaded, but failed to sync slash commands: {e}")

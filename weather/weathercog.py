@@ -1,297 +1,625 @@
 import discord
-import aiohttp # For making asynchronous HTTP requests
-import asyncio # For handling asynchronous operations
-from redbot.core import commands, Config # Import commands framework and Config for settings
-from redbot.core.utils.chat_formatting import humanize_list # For formatting lists nicely
-from datetime import datetime, timedelta # For handling dates and times
+import aiohttp
+import asyncio
+import json
+import time
+from typing import Optional, Dict, Any, Union, Tuple
+from datetime import datetime, timedelta
+from redbot.core import commands, Config
+from redbot.core.utils.chat_formatting import humanize_list, box
+from redbot.core.utils.predicates import MessagePredicate
+from redbot.core.utils.menus import menu, DEFAULT_CONTROLS
+import logging
+
+# Set up logging
+log = logging.getLogger("red.weathercog")
+
+class WeatherCache:
+    """Simple in-memory cache for weather data"""
+    def __init__(self, ttl: int = 600):  # 10 minutes default TTL
+        self.cache: Dict[str, Dict[str, Any]] = {}
+        self.ttl = ttl
+    
+    def _is_expired(self, timestamp: float) -> bool:
+        return time.time() - timestamp > self.ttl
+    
+    def get(self, key: str) -> Optional[Dict[str, Any]]:
+        if key in self.cache:
+            if not self._is_expired(self.cache[key]['timestamp']):
+                return self.cache[key]['data']
+            else:
+                del self.cache[key]
+        return None
+    
+    def set(self, key: str, data: Dict[str, Any]) -> None:
+        self.cache[key] = {
+            'data': data,
+            'timestamp': time.time()
+        }
+    
+    def clear(self) -> None:
+        self.cache.clear()
+
+class WeatherView(discord.ui.View):
+    """Interactive view for weather commands with buttons"""
+    def __init__(self, cog, location: str, country_code: str = "us", user_id: int = None):
+        super().__init__(timeout=300)
+        self.cog = cog
+        self.location = location
+        self.country_code = country_code
+        self.user_id = user_id
+        self.current_mode = "current"
+    
+    @discord.ui.button(label="Current", style=discord.ButtonStyle.primary, emoji="🌤️")
+    async def current_weather(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if self.user_id and interaction.user.id != self.user_id:
+            await interaction.response.send_message("You can't interact with this weather display.", ephemeral=True)
+            return
+        
+        self.current_mode = "current"
+        embed = await self.cog._get_current_weather_embed(self.location, self.country_code, interaction.user.id)
+        if embed:
+            await interaction.response.edit_message(embed=embed, view=self)
+        else:
+            await interaction.response.send_message("Failed to fetch current weather.", ephemeral=True)
+    
+    @discord.ui.button(label="3-Day", style=discord.ButtonStyle.secondary, emoji="📅")
+    async def three_day_forecast(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if self.user_id and interaction.user.id != self.user_id:
+            await interaction.response.send_message("You can't interact with this weather display.", ephemeral=True)
+            return
+        
+        self.current_mode = "3day"
+        embed = await self.cog._get_forecast_embed(self.location, self.country_code, 3, interaction.user.id)
+        if embed:
+            await interaction.response.edit_message(embed=embed, view=self)
+        else:
+            await interaction.response.send_message("Failed to fetch 3-day forecast.", ephemeral=True)
+    
+    @discord.ui.button(label="5-Day", style=discord.ButtonStyle.secondary, emoji="📊")
+    async def five_day_forecast(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if self.user_id and interaction.user.id != self.user_id:
+            await interaction.response.send_message("You can't interact with this weather display.", ephemeral=True)
+            return
+        
+        self.current_mode = "5day"
+        embed = await self.cog._get_forecast_embed(self.location, self.country_code, 5, interaction.user.id)
+        if embed:
+            await interaction.response.edit_message(embed=embed, view=self)
+        else:
+            await interaction.response.send_message("Failed to fetch 5-day forecast.", ephemeral=True)
+    
+    @discord.ui.button(label="7-Day", style=discord.ButtonStyle.secondary, emoji="📈")
+    async def seven_day_forecast(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if self.user_id and interaction.user.id != self.user_id:
+            await interaction.response.send_message("You can't interact with this weather display.", ephemeral=True)
+            return
+        
+        self.current_mode = "7day"
+        embed = await self.cog._get_forecast_embed(self.location, self.country_code, 7, interaction.user.id)
+        if embed:
+            await interaction.response.edit_message(embed=embed, view=self)
+        else:
+            await interaction.response.send_message("Failed to fetch 7-day forecast.", ephemeral=True)
+    
+    @discord.ui.button(label="Settings", style=discord.ButtonStyle.success, emoji="⚙️")
+    async def settings(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if self.user_id and interaction.user.id != self.user_id:
+            await interaction.response.send_message("You can't interact with this weather display.", ephemeral=True)
+            return
+        
+        user_config = await self.cog.config.user(interaction.user).all()
+        units = user_config.get("units", "imperial")
+        temp_unit = "°F" if units == "imperial" else "°C"
+        
+        embed = discord.Embed(
+            title="Weather Settings",
+            description=f"Current unit preference: **{units.title()}** ({temp_unit})",
+            color=discord.Color.gold()
+        )
+        embed.add_field(
+            name="Change Units",
+            value="Use `/weather settings` to change your unit preferences",
+            inline=False
+        )
+        await interaction.response.send_message(embed=embed, ephemeral=True)
 
 class WeatherCog(commands.Cog):
-    """
-    A custom cog for Red Discord Bot to fetch current weather by ZIP code.
-    This cog uses Red's shared API tokens for enhanced security.
-    """
-
-    # We no longer store the API key directly in _config_schema.
-    # It will be managed via Red's shared API tokens.
-    _config_schema = {} 
-
-    # Define the minimum bot version as a class attribute
-    _min_bot_version = "3.0.0" # This should match the min_bot_version in info.json
-
+    """Enhanced weather cog with forecasts, caching, and interactive features"""
+    
     def __init__(self, bot):
-        """
-        Constructor for the WeatherCog.
-        Args:
-            bot: The Red bot instance.
-        """
         self.bot = bot
-        # Initialize the Config object for this cog.
-        # The unique identifier 'weathercog' ensures settings are separate from other cogs.
-        self.config = Config.get_conf(self, identifier=1234567890, force_registration=True)
-        # Register the default configuration schema (now empty as API key is shared).
-        self.config.register_global(**self._config_schema)
-        # Initialize an aiohttp ClientSession for making web requests.
-        # This session is created once and reused for efficiency.
         self.session = aiohttp.ClientSession()
-
-    async def red_delete_data_for_user(self, *, requester: str, user_id: int):
-        """
-        No data to delete for a user. This cog does not store user-specific data.
-        Required by Red for data privacy compliance.
-        """
-        return
-
+        self.cache = WeatherCache(ttl=600)  # 10-minute cache
+        
+        # Configuration schema
+        default_global = {}
+        default_user = {
+            "units": "imperial",  # imperial or metric
+            "default_location": None,
+            "default_country": "us"
+        }
+        default_guild = {
+            "units": "imperial",
+            "cache_ttl": 600
+        }
+        
+        self.config = Config.get_conf(self, identifier=1234567891, force_registration=True)
+        self.config.register_global(**default_global)
+        self.config.register_user(**default_user)
+        self.config.register_guild(**default_guild)
+    
     def cog_unload(self):
-        """
-        Called when the cog is unloaded.
-        Cleans up the aiohttp ClientSession to prevent resource leaks.
-        """
-        # Ensure the aiohttp session is closed when the cog is unloaded.
-        # This prevents lingering connections.
+        """Clean up resources when cog is unloaded"""
         asyncio.create_task(self.session.close())
-
-    @commands.group()
-    @commands.is_owner() # Only the bot owner can use these commands
-    async def weatherset(self, ctx):
-        """
-        Commands for configuring the WeatherCog.
-        """
-        if ctx.invoked_subcommand is None:
-            await ctx.send_help(ctx.command)
-
-    @weatherset.command()
-    async def setapikey(self, ctx, api_key: str):
-        """
-        Sets the OpenWeatherMap API key using Red's shared API tokens.
-        You can get an API key from: https://openweathermap.org/api
+        self.cache.clear()
+    
+    async def red_delete_data_for_user(self, *, requester: str, user_id: int):
+        """Delete user data for GDPR compliance"""
+        await self.config.user_from_id(user_id).clear()
+    
+    def _parse_location(self, location: str) -> Tuple[str, str]:
+        """Parse location input to determine if it's coordinates, zip, or city name"""
+        location = location.strip()
         
-        Note: It might take a few minutes (or occasionally longer) for a new API key to become active on OpenWeatherMap's side.
+        # Check if it's coordinates (lat,lon)
+        if ',' in location and all(part.replace('.', '').replace('-', '').isdigit() for part in location.split(',')):
+            return "coord", location
         
-        This command will store the key using Red's `set api` command internally.
-        For future reference, you can also use `[p]set api openweathermap api_key <your_api_key_here>` directly.
-
-        Usage: [p]weatherset setapikey <your_api_key_here>
-        """
-        # Store the API key using Red's shared API tokens
-        await self.bot.set_shared_api_tokens("openweathermap", api_key=api_key) 
-        await ctx.send(
-            "OpenWeatherMap API key has been set and stored securely using Red's shared API tokens.\n"
-            f"You can also manage this key directly with `{ctx.clean_prefix}set api openweathermap api_key <your_key>`."
-        )
-
-    @weatherset.command()
-    async def viewapikey(self, ctx):
-        """
-        Views the currently stored OpenWeatherMap API key (from Red's shared API tokens).
-        This command is only usable by the bot owner.
-        """
-        # Retrieve the API key from Red's shared API tokens
+        # Check if it's a zip code (numbers only or alphanumeric for international)
+        if location.replace(' ', '').isalnum() and len(location) <= 10:
+            return "zip", location
+        
+        # Otherwise treat as city name
+        return "city", location
+    
+    def _get_cache_key(self, location: str, country_code: str, endpoint: str) -> str:
+        """Generate cache key for weather data"""
+        return f"{endpoint}:{location}:{country_code}"
+    
+    async def _get_api_key(self) -> Optional[str]:
+        """Get OpenWeatherMap API key from shared tokens"""
         tokens = await self.bot.get_shared_api_tokens("openweathermap")
-        api_key = tokens.get("api_key")
-
-        if api_key:
-            try:
-                await ctx.author.send(f"The current OpenWeatherMap API key is: `{api_key}`")
-                if ctx.guild: # Send a public confirmation if used in a guild
-                    await ctx.send("The API key has been sent to your DMs.")
-            except discord.Forbidden:
-                await ctx.send(
-                    "I could not send the API key to your DMs. "
-                    "Please check your Discord privacy settings to allow DMs from this bot."
-                )
-            except Exception as e:
-                await ctx.send(f"An unexpected error occurred while sending the API key to your Dbot DMs: {e}")
-                self.bot.logger.error(f"WeatherCog viewapikey error: {e}")
-        else:
-            await ctx.send(
-                f"No OpenWeatherMap API key is currently set. "
-                f"Please set it using `{ctx.clean_prefix}set api openweathermap api_key <your_key>`."
-            )
-
-    @commands.group(invoke_without_command=True) # Changed to commands.group to allow subcommands
-    @commands.guild_only()
-    @commands.cooldown(1, 60, commands.BucketType.user) # Cooldown changed to 60 seconds
-    async def weather(self, ctx, zip_code: str, country_code: str = "us", days: int = None):
-        """
-        Gets the current weather conditions for a given ZIP code.
-        Use `[p]weather info` for cog information.
-
-        Usage:
-        [p]weather <zip_code> [country_code]
-        [p]weather <zip_code> [country_code] <days_for_forecast>
-
-        To get the current weather:
-        [p]weather <zip_code>
-        [p]weather <zip_code> <country_code>
-        (If you provide a number other than '1' for days_for_forecast,
-         it will default to showing the current weather.)
-
-        To get a 1-day forecast:
-        [p]weather <zip_code> 1
-        [p]weather <zip_code> <country_code> 1
-
-        Examples:
-        [p]weather 90210                 - Current weather for Beverly Hills, USA
-        [p]weather 78701 us             - Current weather for Austin, Texas, USA
-        [p]weather SW1A0AA gb 1         - 1-day forecast for London, UK
-        [p]weather 90210 1              - 1-day forecast for Beverly Hills, USA
-        [p]weather 78701 7              - Will show current weather for Austin, Texas, USA
-        """
-        # Retrieve the API key from Red's shared API tokens
-        tokens = await self.bot.get_shared_api_tokens("openweathermap")
-        api_key = tokens.get("api_key")
-
-        if not api_key:
-            return await ctx.send(
-                f"The OpenWeatherMap API key is not set. Please set it using Red's shared API tokens:\n"
-                f"`{ctx.clean_prefix}set api openweathermap api_key <your_api_key>`."
-            )
-
-        if ctx.invoked_subcommand is not None:
-            return # If a subcommand was invoked, don't run the base command
-
-        if not zip_code.isalnum():
-            return await ctx.send("Please provide a valid ZIP/postal code.")
-
-        units = "imperial" # Default to Fahrenheit for US, can be made configurable
+        return tokens.get("api_key")
+    
+    async def _get_user_units(self, user_id: int) -> Tuple[str, str, str]:
+        """Get user's preferred units"""
+        user_config = await self.config.user_from_id(user_id).all()
+        units = user_config.get("units", "imperial")
         temp_unit = "°F" if units == "imperial" else "°C"
         speed_unit = "mph" if units == "imperial" else "m/s"
-
-        # If days is 1, fetch 1-day forecast; otherwise, fetch current weather
-        if days == 1: # Fetch 1-day forecast
-            base_url = "https://api.openweathermap.org/data/2.5/forecast"
-            params = {
-                "zip": f"{zip_code},{country_code}",
-                "appid": api_key,
-                "units": units
-            }
-
-            try:
-                async with self.session.get(base_url, params=params) as response:
-                    if response.status == 200:
-                        data = await response.json()
-                        city_name = data["city"]["name"]
-                        
-                        embed = discord.Embed(
-                            title=f"Weather Forecast for {city_name} (1 Day)",
-                            color=discord.Color.green() # Different color for forecast
-                        )
-                        embed.set_footer(text="Powered by OpenWeatherMap | Daily summaries from 3-hour step forecast")
-
-                        # Process the 5-day / 3-hour forecast data to get daily summaries
-                        forecast_list = data["list"]
-                        
-                        # Dictionary to hold one entry per day
-                        daily_forecasts = {}
-
-                        for entry in forecast_list:
-                            dt_object = datetime.fromtimestamp(entry["dt"])
-                            # Get the date part (YYYY-MM-DD)
-                            date_str = dt_object.strftime("%Y-%m-%d")
-
-                            if date_str not in daily_forecasts:
-                                daily_forecasts[date_str] = {
-                                    "temp_min": entry["main"]["temp_min"],
-                                    "temp_max": entry["main"]["temp_max"],
-                                    "description": entry["weather"][0]["description"].capitalize(),
-                                    "icon": entry["weather"][0]["icon"],
-                                    "date": dt_object.strftime("%a, %b %d") # E.g., Mon, Jun 09
-                                }
-                            else:
-                                daily_forecasts[date_str]["temp_min"] = min(daily_forecasts[date_str]["temp_min"], entry["main"]["temp_min"])
-                                daily_forecasts[date_str]["temp_max"] = max(daily_forecasts[date_str]["temp_max"], entry["main"]["temp_max"])
-
-                        # Add fields for only the first day
-                        first_day_key = sorted(daily_forecasts.keys())[0]
-                        forecast = daily_forecasts[first_day_key]
-                        embed.add_field(
-                            name=forecast["date"],
-                            value=(
-                                f"Temp: {forecast['temp_min']:.0f}{temp_unit} - {forecast['temp_max']:.0f}{temp_unit}\n"
-                                f"Condition: {forecast['description']}"
-                            ),
-                            inline=False
-                        )
-                            
-                        await ctx.send(embed=embed)
-
-                    elif response.status == 401:
-                        await ctx.send(f"Error: Invalid OpenWeatherMap API key. Please check your key set with `{ctx.clean_prefix}set api openweathermap api_key <your_key>`.")
-                    elif response.status == 404:
-                        await ctx.send("Error: ZIP/postal code or country not found for forecast. Please check your input.")
-                    else:
-                        await ctx.send(f"An unexpected error occurred with the weather API (Status: {response.status}).")
-            except aiohttp.ClientConnectorError:
-                await ctx.send("Could not connect to the weather API for forecast. Please try again later.")
-            except asyncio.TimeoutError:
-                await ctx.send("The weather API forecast request timed out. Please try again later.")
-            except Exception as e:
-                await ctx.send(f"An error occurred during forecast lookup: {e}")
-                self.bot.logger.error(f"WeatherCog error (forecast): {e}")
-
-        else: # Fetch current weather (if days is None or any number other than 1)
+        return units, temp_unit, speed_unit
+    
+    async def _make_weather_request(self, endpoint: str, params: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """Make weather API request with error handling"""
+        try:
+            async with self.session.get(endpoint, params=params, timeout=10) as response:
+                if response.status == 200:
+                    return await response.json()
+                elif response.status == 401:
+                    log.error("Invalid OpenWeatherMap API key")
+                    return {"error": "Invalid API key"}
+                elif response.status == 404:
+                    return {"error": "Location not found"}
+                else:
+                    log.error(f"Weather API error: {response.status}")
+                    return {"error": f"API error: {response.status}"}
+        except asyncio.TimeoutError:
+            log.error("Weather API request timed out")
+            return {"error": "Request timed out"}
+        except Exception as e:
+            log.error(f"Weather API request failed: {e}")
+            return {"error": str(e)}
+    
+    async def _get_weather_data(self, location: str, country_code: str, endpoint_type: str, user_id: int) -> Optional[Dict[str, Any]]:
+        """Get weather data with caching"""
+        api_key = await self._get_api_key()
+        if not api_key:
+            return {"error": "API key not set"}
+        
+        # Check cache first
+        cache_key = self._get_cache_key(location, country_code, endpoint_type)
+        cached_data = self.cache.get(cache_key)
+        if cached_data:
+            return cached_data
+        
+        # Determine location type and build parameters
+        location_type, parsed_location = self._parse_location(location)
+        units, _, _ = await self._get_user_units(user_id)
+        
+        if endpoint_type == "current":
             base_url = "https://api.openweathermap.org/data/2.5/weather"
-            params = {
-                "zip": f"{zip_code},{country_code}",
-                "appid": api_key,
-                "units": units
-            }
-            try:
-                async with self.session.get(base_url, params=params) as response:
-                    if response.status == 200:
-                        data = await response.json()
-                        city_name = data["name"]
-                        weather_description = data["weather"][0]["description"].capitalize()
-                        temperature = data["main"]["temp"]
-                        feels_like = data["main"]["feels_like"]
-                        humidity = data["main"]["humidity"]
-                        wind_speed = data["wind"]["speed"]
-                        
-                        embed = discord.Embed(
-                            title=f"Current Weather in {city_name}",
-                            description=f"**{weather_description}**",
-                            color=discord.Color.blue()
-                        )
-                        embed.add_field(name="Temperature", value=f"{temperature}{temp_unit} (Feels like {feels_like}{temp_unit})", inline=False)
-                        embed.add_field(name="Humidity", value=f"{humidity}%", inline=True)
-                        embed.add_field(name="Wind Speed", value=f"{wind_speed} {speed_unit}", inline=True)
-                        embed.set_footer(text="Powered by OpenWeatherMap")
-                        embed.set_thumbnail(url=f"http://openweathermap.org/img/wn/{data['weather'][0]['icon']}@2x.png")
-                        await ctx.send(embed=embed)
-                    elif response.status == 401:
-                        await ctx.send(f"Error: Invalid OpenWeatherMap API key. Please check your key set with `{ctx.clean_prefix}set api openweathermap api_key <your_key>`.")
-                    elif response.status == 404:
-                        await ctx.send("Error: ZIP/postal code or country not found. Please check your input.")
-                    else:
-                        await ctx.send(f"An unexpected error occurred with the weather API (Status: {response.status}).")
-            except aiohttp.ClientConnectorError:
-                await ctx.send("Could not connect to the weather API. Please try again later.")
-            except asyncio.TimeoutError:
-                await ctx.send("The weather API request timed out. Please try again later.")
-            except Exception as e:
-                await ctx.send(f"An error occurred: {e}")
-                self.bot.logger.error(f"WeatherCog error (current weather): {e}")
-
-    @weather.command(name="info") # Subcommand for cog info
-    @commands.guild_only()
-    async def _info(self, ctx):
-        """
-        Displays information about the WeatherCog.
-        This is a subcommand of `[p]weather`.
-        """
-        # Get info from info.json (or hardcoded class attribute)
-        cog_name = self.qualified_name
-        author = humanize_list(self.bot.get_cog_details(cog_name).get("author", ["Unknown"]))
-        description = self.bot.get_cog_details(cog_name).get("description", "No description provided.")
-        min_red_version = self._min_bot_version # Accessing the class attribute
-
+        else:
+            base_url = "https://api.openweathermap.org/data/2.5/forecast"
+        
+        params = {"appid": api_key, "units": units}
+        
+        if location_type == "coord":
+            lat, lon = parsed_location.split(',')
+            params.update({"lat": lat.strip(), "lon": lon.strip()})
+        elif location_type == "zip":
+            params["zip"] = f"{parsed_location},{country_code}"
+        else:  # city name
+            params["q"] = f"{parsed_location},{country_code}"
+        
+        # Make API request
+        data = await self._make_weather_request(base_url, params)
+        
+        # Cache successful responses
+        if data and "error" not in data:
+            self.cache.set(cache_key, data)
+        
+        return data
+    
+    async def _get_current_weather_embed(self, location: str, country_code: str, user_id: int) -> Optional[discord.Embed]:
+        """Create embed for current weather"""
+        data = await self._get_weather_data(location, country_code, "current", user_id)
+        
+        if not data or "error" in data:
+            return None
+        
+        units, temp_unit, speed_unit = await self._get_user_units(user_id)
+        
+        city_name = data["name"]
+        country = data["sys"]["country"]
+        weather_desc = data["weather"][0]["description"].title()
+        temp = data["main"]["temp"]
+        feels_like = data["main"]["feels_like"]
+        humidity = data["main"]["humidity"]
+        pressure = data["main"]["pressure"]
+        wind_speed = data["wind"]["speed"]
+        wind_deg = data["wind"].get("deg", 0)
+        visibility = data.get("visibility", 0) / 1000  # Convert to km
+        
+        # Wind direction
+        wind_directions = ["N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE", "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW"]
+        wind_dir = wind_directions[int((wind_deg + 11.25) / 22.5) % 16]
+        
         embed = discord.Embed(
-            title=f"{cog_name} Cog Information",
-            description=description,
+            title=f"🌤️ Current Weather in {city_name}, {country}",
+            description=f"**{weather_desc}**",
+            color=discord.Color.blue(),
+            timestamp=datetime.utcnow()
+        )
+        
+        embed.add_field(
+            name="🌡️ Temperature",
+            value=f"{temp:.1f}{temp_unit}\nFeels like {feels_like:.1f}{temp_unit}",
+            inline=True
+        )
+        
+        embed.add_field(
+            name="💧 Humidity",
+            value=f"{humidity}%",
+            inline=True
+        )
+        
+        embed.add_field(
+            name="🌬️ Wind",
+            value=f"{wind_speed:.1f} {speed_unit} {wind_dir}",
+            inline=True
+        )
+        
+        embed.add_field(
+            name="🔽 Pressure",
+            value=f"{pressure} hPa",
+            inline=True
+        )
+        
+        embed.add_field(
+            name="👁️ Visibility",
+            value=f"{visibility:.1f} km",
+            inline=True
+        )
+        
+        # Add sunrise/sunset if available
+        if "sys" in data and "sunrise" in data["sys"]:
+            sunrise = datetime.fromtimestamp(data["sys"]["sunrise"]).strftime("%H:%M")
+            sunset = datetime.fromtimestamp(data["sys"]["sunset"]).strftime("%H:%M")
+            embed.add_field(
+                name="🌅 Sun Times",
+                value=f"Rise: {sunrise}\nSet: {sunset}",
+                inline=True
+            )
+        
+        embed.set_thumbnail(url=f"http://openweathermap.org/img/wn/{data['weather'][0]['icon']}@2x.png")
+        embed.set_footer(text="Powered by OpenWeatherMap")
+        
+        return embed
+    
+    async def _get_forecast_embed(self, location: str, country_code: str, days: int, user_id: int) -> Optional[discord.Embed]:
+        """Create embed for weather forecast"""
+        data = await self._get_weather_data(location, country_code, "forecast", user_id)
+        
+        if not data or "error" in data:
+            return None
+        
+        units, temp_unit, speed_unit = await self._get_user_units(user_id)
+        
+        city_name = data["city"]["name"]
+        country = data["city"]["country"]
+        
+        embed = discord.Embed(
+            title=f"📅 {days}-Day Weather Forecast for {city_name}, {country}",
+            color=discord.Color.green(),
+            timestamp=datetime.utcnow()
+        )
+        
+        # Process forecast data
+        forecast_list = data["list"]
+        daily_forecasts = {}
+        
+        for entry in forecast_list:
+            dt_object = datetime.fromtimestamp(entry["dt"])
+            date_str = dt_object.strftime("%Y-%m-%d")
+            
+            if date_str not in daily_forecasts:
+                daily_forecasts[date_str] = {
+                    "temp_min": entry["main"]["temp_min"],
+                    "temp_max": entry["main"]["temp_max"],
+                    "description": entry["weather"][0]["description"].title(),
+                    "icon": entry["weather"][0]["icon"],
+                    "humidity": entry["main"]["humidity"],
+                    "wind_speed": entry["wind"]["speed"],
+                    "date": dt_object.strftime("%a, %b %d"),
+                    "entries": [entry]
+                }
+            else:
+                daily_forecasts[date_str]["temp_min"] = min(daily_forecasts[date_str]["temp_min"], entry["main"]["temp_min"])
+                daily_forecasts[date_str]["temp_max"] = max(daily_forecasts[date_str]["temp_max"], entry["main"]["temp_max"])
+                daily_forecasts[date_str]["entries"].append(entry)
+        
+        # Add forecast fields for requested days
+        sorted_dates = sorted(daily_forecasts.keys())[:days]
+        
+        for i, date_key in enumerate(sorted_dates):
+            forecast = daily_forecasts[date_key]
+            
+            # Calculate average humidity and wind speed for the day
+            avg_humidity = sum(entry["main"]["humidity"] for entry in forecast["entries"]) / len(forecast["entries"])
+            avg_wind = sum(entry["wind"]["speed"] for entry in forecast["entries"]) / len(forecast["entries"])
+            
+            field_value = (
+                f"🌡️ {forecast['temp_min']:.0f}{temp_unit} - {forecast['temp_max']:.0f}{temp_unit}\n"
+                f"🌤️ {forecast['description']}\n"
+                f"💧 {avg_humidity:.0f}% humidity\n"
+                f"🌬️ {avg_wind:.1f} {speed_unit} wind"
+            )
+            
+            embed.add_field(
+                name=f"{forecast['date']} {'(Today)' if i == 0 else ''}",
+                value=field_value,
+                inline=True
+            )
+        
+        embed.set_footer(text="Powered by OpenWeatherMap | Tap buttons to switch views")
+        
+        return embed
+    
+    # Slash Commands
+    @discord.app_commands.command(name="weather", description="Get weather information for a location")
+    @discord.app_commands.describe(
+        location="Location (city name, ZIP code, or coordinates)",
+        country="Country code (default: us)",
+        forecast="Forecast days (1, 3, 5, or 7)"
+    )
+    async def weather_slash(
+        self, 
+        interaction: discord.Interaction, 
+        location: str, 
+        country: str = "us",
+        forecast: Optional[int] = None
+    ):
+        """Slash command for weather"""
+        await interaction.response.defer()
+        
+        try:
+            if forecast and forecast in [3, 5, 7]:
+                embed = await self._get_forecast_embed(location, country, forecast, interaction.user.id)
+            else:
+                embed = await self._get_current_weather_embed(location, country, interaction.user.id)
+            
+            if embed:
+                view = WeatherView(self, location, country, interaction.user.id)
+                await interaction.followup.send(embed=embed, view=view)
+            else:
+                await interaction.followup.send("❌ Could not fetch weather data. Please check your location and try again.")
+        
+        except Exception as e:
+            log.error(f"Weather slash command error: {e}")
+            await interaction.followup.send("❌ An error occurred while fetching weather data.")
+    
+    @discord.app_commands.command(name="weather-settings", description="Configure your weather preferences")
+    @discord.app_commands.describe(units="Temperature units (imperial or metric)")
+    @discord.app_commands.choices(units=[
+        discord.app_commands.Choice(name="Imperial (°F, mph)", value="imperial"),
+        discord.app_commands.Choice(name="Metric (°C, m/s)", value="metric")
+    ])
+    async def weather_settings_slash(self, interaction: discord.Interaction, units: str):
+        """Slash command for weather settings"""
+        await self.config.user(interaction.user).units.set(units)
+        
+        temp_unit = "°F" if units == "imperial" else "°C"
+        speed_unit = "mph" if units == "imperial" else "m/s"
+        
+        embed = discord.Embed(
+            title="⚙️ Weather Settings Updated",
+            description=f"Your unit preference has been set to **{units.title()}**",
+            color=discord.Color.green()
+        )
+        embed.add_field(
+            name="Units",
+            value=f"Temperature: {temp_unit}\nWind Speed: {speed_unit}",
+            inline=False
+        )
+        
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+    
+    # Traditional Commands (keeping for compatibility)
+    @commands.group(invoke_without_command=True)
+    @commands.guild_only()
+    @commands.cooldown(1, 30, commands.BucketType.user)
+    async def weather(self, ctx, location: str, country_code: str = "us", days: Optional[int] = None):
+        """Get weather information for a location
+        
+        Usage:
+        [p]weather <location> [country_code] [days]
+        
+        Examples:
+        [p]weather "New York"
+        [p]weather 90210 us
+        [p]weather "London" gb 5
+        [p]weather 40.7128,-74.0060  (coordinates)
+        """
+        async with ctx.typing():
+            try:
+                if days and days in [3, 5, 7]:
+                    embed = await self._get_forecast_embed(location, country_code, days, ctx.author.id)
+                else:
+                    embed = await self._get_current_weather_embed(location, country_code, ctx.author.id)
+                
+                if embed:
+                    view = WeatherView(self, location, country_code, ctx.author.id)
+                    await ctx.send(embed=embed, view=view)
+                else:
+                    await ctx.send("❌ Could not fetch weather data. Please check your location and try again.")
+            
+            except Exception as e:
+                log.error(f"Weather command error: {e}")
+                await ctx.send("❌ An error occurred while fetching weather data.")
+    
+    @weather.command(name="settings")
+    async def weather_settings(self, ctx, units: str = None):
+        """Configure your weather preferences
+        
+        Usage: [p]weather settings [imperial|metric]
+        """
+        if units is None:
+            user_config = await self.config.user(ctx.author).all()
+            current_units = user_config.get("units", "imperial")
+            temp_unit = "°F" if current_units == "imperial" else "°C"
+            
+            embed = discord.Embed(
+                title="⚙️ Your Weather Settings",
+                color=discord.Color.blue()
+            )
+            embed.add_field(
+                name="Current Units",
+                value=f"{current_units.title()} ({temp_unit})",
+                inline=False
+            )
+            embed.add_field(
+                name="Change Units",
+                value=f"`{ctx.prefix}weather settings imperial` or `{ctx.prefix}weather settings metric`",
+                inline=False
+            )
+            
+            await ctx.send(embed=embed)
+            return
+        
+        if units.lower() not in ["imperial", "metric"]:
+            await ctx.send("❌ Units must be either 'imperial' or 'metric'.")
+            return
+        
+        await self.config.user(ctx.author).units.set(units.lower())
+        
+        temp_unit = "°F" if units.lower() == "imperial" else "°C"
+        speed_unit = "mph" if units.lower() == "imperial" else "m/s"
+        
+        embed = discord.Embed(
+            title="✅ Settings Updated",
+            description=f"Your unit preference has been set to **{units.title()}**",
+            color=discord.Color.green()
+        )
+        embed.add_field(
+            name="Units",
+            value=f"Temperature: {temp_unit}\nWind Speed: {speed_unit}",
+            inline=False
+        )
+        
+        await ctx.send(embed=embed)
+    
+    @weather.command(name="info")
+    async def weather_info(self, ctx):
+        """Display information about the WeatherCog"""
+        embed = discord.Embed(
+            title="🌤️ Enhanced WeatherCog Information",
+            description="Advanced weather information with forecasts, caching, and interactive features",
             color=discord.Color.teal()
         )
-        embed.add_field(name="Author", value=author, inline=True)
-        embed.add_field(name="Minimum Red Bot Version", value=min_red_version, inline=True)
-        embed.set_footer(text="Developed for Red Discord Bot")
-
+        
+        embed.add_field(
+            name="📍 Location Support",
+            value="• City names\n• ZIP/Postal codes\n• Coordinates (lat,lon)",
+            inline=True
+        )
+        
+        embed.add_field(
+            name="📅 Forecast Options",
+            value="• Current weather\n• 3, 5, 7-day forecasts\n• Interactive buttons",
+            inline=True
+        )
+        
+        embed.add_field(
+            name="⚙️ Features",
+            value="• User preferences\n• Smart caching\n• Slash commands\n• Enhanced embeds",
+            inline=True
+        )
+        
+        embed.add_field(
+            name="🔧 Commands",
+            value=f"`{ctx.prefix}weather <location>`\n`/weather <location>`\n`{ctx.prefix}weather settings`",
+            inline=False
+        )
+        
+        embed.set_footer(text="Powered by OpenWeatherMap API")
+        
+        await ctx.send(embed=embed)
+    
+    # Admin Commands
+    @commands.group()
+    @commands.is_owner()
+    async def weatherset(self, ctx):
+        """Weather cog configuration commands"""
+        if ctx.invoked_subcommand is None:
+            await ctx.send_help(ctx.command)
+    
+    @weatherset.command()
+    async def setapikey(self, ctx, api_key: str):
+        """Set the OpenWeatherMap API key"""
+        await self.bot.set_shared_api_tokens("openweathermap", api_key=api_key)
+        await ctx.send("✅ OpenWeatherMap API key has been set successfully!")
+    
+    @weatherset.command()
+    async def viewapikey(self, ctx):
+        """View the current API key (sent via DM)"""
+        tokens = await self.bot.get_shared_api_tokens("openweathermap")
+        api_key = tokens.get("api_key")
+        
+        if api_key:
+            try:
+                await ctx.author.send(f"Current OpenWeatherMap API key: `{api_key}`")
+                await ctx.send("✅ API key sent to your DMs.")
+            except discord.Forbidden:
+                await ctx.send("❌ Could not send DM. Please check your privacy settings.")
+        else:
+            await ctx.send("❌ No API key is currently set.")
+    
+    @weatherset.command()
+    async def clearcache(self, ctx):
+        """Clear the weather data cache"""
+        self.cache.clear()
+        await ctx.send("✅ Weather cache has been cleared.")
+    
+    @weatherset.command()
+    async def cachestats(self, ctx):
+        """View cache statistics"""
+        cache_size = len(self.cache.cache)
+        embed = discord.Embed(
+            title="📊 Cache Statistics",
+            color=discord.Color.blue()
+        )
+        embed.add_field(name="Cached Entries", value=str(cache_size), inline=True)
+        embed.add_field(name="TTL", value=f"{self.cache.ttl} seconds", inline=True)
+        
         await ctx.send(embed=embed)

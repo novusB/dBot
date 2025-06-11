@@ -1,9 +1,11 @@
 {
-    "name": "WeatherCog",
-    "author": ["novusB"],
-    "description": "A custom cog to fetch current weather conditions or a daily forecast by ZIP/postal code",
-    "tags": ["utility", "weather", "information", "forecast"],
-    "end_user_diagnose_enabled": false,
-    "min_bot_version": "3.0.0",
-    "hidden": false
+  "name": "EnhancedWeatherCog",
+  "author": ["novusB"],
+  "description": "An advanced weather cog with multi-day forecasts, interactive buttons, caching, slash commands, and user preferences",
+  "tags": ["utility", "weather", "information", "forecast", "interactive", "slash-commands"],
+  "end_user_diagnose_enabled": false,
+  "min_bot_version": "3.5.0",
+  "hidden": false,
+  "requirements": ["aiohttp>=3.8.0"],
+  "min_python_version": [3, 8, 0]
 }
