@@ -292,7 +292,7 @@ class OSRSStats(commands.Cog):
         
             combat_level = base + max(melee, ranged_level, magic_level)
             return int(combat_level)
-        except Exception:
+        except Exception as e:
             return 3
 
     def format_number(self, num: int) -> str:
