@@ -1083,64 +1083,65 @@ class OSRSStats(commands.Cog):
         return xp_rates.get(skill, {})
 
     
-    async def fetch_ge_prices(self, item_name: str) -> Optional[dict]:
-        """Fetch Grand Exchange prices for an item using the OSRS API."""
-        try:
-            print(f"Searching for item: '{item_name}'")  # Debug logging
-        
-            # Clean the search term
-            search_term = item_name.lower().strip()
-            first_letter = search_term[0] if search_term else 'a'
-        
-            # Search through multiple pages for the first letter
-            target_item = None
-        
-            for page in range(1, 6):  # Search first 5 pages
-                search_url = f"https://secure.runescape.com/m=itemdb_oldschool/api/catalogue/items.json?category=1&alpha={first_letter}&page={page}"
-                print(f"Searching URL: {search_url}")  # Debug logging
-        
+    
+async def fetch_ge_prices(self, item_name: str) -> Optional[dict]:
+    """Fetch Grand Exchange prices for an item using the OSRS API."""
+    try:
+        print(f"Searching for item: '{item_name}'")  # Debug logging
+    
+        # Clean the search term
+        search_term = item_name.lower().strip()
+        first_letter = search_term[0] if search_term else 'a'
+    
+        # Search through multiple pages for the first letter
+        target_item = None
+    
+        for page in range(1, 6):  # Search first 5 pages
+            search_url = f"https://secure.runescape.com/m=itemdb_oldschool/api/catalogue/items.json?category=1&alpha={first_letter}&page={page}"
+            print(f"Searching URL: {search_url}")  # Debug logging
+    
             async with self.session.get(search_url) as response:
                 if response.status != 200:
                     print(f"Search failed with status {response.status}")
                     continue
-            
+        
                 try:
                     search_data = await response.json()
                 except Exception:
                     print("Failed to parse JSON response")
                     continue
-            
+        
                 items = search_data.get('items', [])
                 print(f"Found {len(items)} items on page {page}")  # Debug logging
-        
+    
                 # Find matches
                 exact_match = None
                 partial_matches = []
-        
+    
                 for item in items:
                     item_name_lower = item['name'].lower()
-            
+        
                     # Exact match
                     if item_name_lower == search_term:
                         exact_match = item
                         print(f"Found exact match: {item['name']}")
                         break
-            
+        
                     # Partial matches
                     if search_term in item_name_lower:
                         partial_matches.append(item)
                         print(f"Found partial match: {item['name']}")
-            
+        
                     # Word-based matching for multi-word items
                     search_words = search_term.split()
                     item_words = item_name_lower.split()
-            
+        
                     if len(search_words) > 1:
                         matching_words = sum(1 for word in search_words if word in item_words)
                         if matching_words >= len(search_words):
                             partial_matches.append(item)
                             print(f"Found word match: {item['name']}")
-            
+        
                 # Choose the best match
                 if exact_match:
                     target_item = exact_match
@@ -1151,7 +1152,7 @@ class OSRSStats(commands.Cog):
                     target_item = partial_matches[0]
                     print(f"Using best partial match: {target_item['name']}")
                     break
-    
+
         # If no match found with first letter, try a broader search
         if not target_item:
             print("No match found with first letter, trying broader search...")
@@ -1184,17 +1185,17 @@ class OSRSStats(commands.Cog):
                             break
                     except Exception:
                         continue
-    
+
         if not target_item:
             print(f"No item found matching '{item_name}'")
             return None
-    
+
         print(f"Fetching details for item ID: {target_item['id']} ({target_item['name']})")
-    
+
         # Fetch detailed price information
         item_id = target_item['id']
         detail_url = f"https://secure.runescape.com/m=itemdb_oldschool/api/catalogue/detail.json?item={item_id}"
-    
+
         async with self.session.get(detail_url) as detail_response:
             if detail_response.status != 200:
                 print(f"Detail fetch failed with status {detail_response.status}")
