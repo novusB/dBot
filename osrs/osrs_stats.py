@@ -430,28 +430,49 @@ class OSRSStats(commands.Cog):
         
         return "\n".join(f"• {rec}" for rec in recommendations[:4])  # Limit to 4 recommendations
 
-    @commands.group(name="osrs", aliases=["osrsstats", "oldschool"], invoke_without_command=True)
-    async def osrs_stats(self, ctx, *, args: str):
+    @commands.group(name="osrs", aliases=["osrsstats", "oldschool"], invoke_without_command=False)
+    async def osrs_stats(self, ctx):
+        """
+        Old School RuneScape statistics and tools command group.
+        
+        Main command group for all OSRS-related functionality including player stats,
+        skill analysis, boss kills, goal calculations, and Grand Exchange prices.
+        
+        Use .osrs help to see all available subcommands and usage examples.
+        """
+        if ctx.invoked_subcommand is None:
+            await ctx.send("❌ Please specify a subcommand!\n\n**Available commands:**\n"
+                          "`.osrs stats` - Player statistics\n"
+                          "`.osrs skill` - Skill analysis\n"
+                          "`.osrs boss` - Boss kills\n"
+                          "`.osrs goals` - Goal calculator\n"
+                          "`.osrs ge` - Grand Exchange prices\n"
+                          "`.osrs help` - Complete help guide\n\n"
+                          "**Example:** `.osrs stats \"tcp syn ack\"`")
+
+    @osrs_stats.command(name="stats", aliases=["player", "lookup"])
+    async def osrs_player_stats(self, ctx, *, args: str):
         """
         Get comprehensive OSRS player statistics with detailed analysis and recommendations.
         
-        Main command that provides complete account overview including combat level, total XP,
+        Provides complete account overview including combat level, total XP,
         skill progress, PvM statistics, and personalized recommendations.
         
         Supports all account types: normal, ironman, hardcore, ultimate, deadman, seasonal
-        Use quotes around usernames with spaces: .osrs "tcp syn ack"
+        Use quotes around usernames with spaces: .osrs stats "tcp syn ack"
         
         Examples:
-        .osrs "tcp syn ack"
-        .osrs "tcp syn ack" ironman
-        .osrs Zezima
-        .osrs Zezima hardcore
+        .osrs stats "tcp syn ack"
+        .osrs stats "tcp syn ack" ironman
+        .osrs stats Zezima
+        .osrs stats Zezima hardcore
         
-        Subcommands available:
-        .osrs skill - Detailed skill analysis
-        .osrs boss - Boss kill counts
-        .osrs goals - XP goal calculator
-        .osrs help - Complete command guide
+        Features:
+        • Complete account analysis and progression stage
+        • Combat level calculation and skill breakdown
+        • PvM statistics and boss kill analysis
+        • Personalized training recommendations
+        • Account efficiency ratings
         """
         # Parse arguments - handle quoted usernames and account types
         parts = []
@@ -466,46 +487,46 @@ class OSRSStats(commands.Cog):
                 if current_part:
                     parts.append(current_part)
                     current_part = ""
-            elif char == ' ' and not in_quotes:
-                if current_part:
-                    parts.append(current_part)
-                    current_part = ""
-            else:
-                current_part += char
+        elif char == ' ' and not in_quotes:
+            if current_part:
+                parts.append(current_part)
+                current_part = ""
+        else:
+            current_part += char
+    
+    if current_part:
+        parts.append(current_part)
+    
+    if not parts:
+        await ctx.send("❌ Please provide a username!\n\n**Usage:**\n`.osrs stats \"username with spaces\"`\n`.osrs stats username_without_spaces`\n\n**Examples:**\n`.osrs stats \"tcp syn ack\"`\n`.osrs stats Zezima ironman`")
+        return
+    
+    username = parts[0]
+    account_type = parts[1].lower() if len(parts) > 1 else "normal"
+    
+    valid_types = ["normal", "ironman", "hardcore", "ultimate", "deadman", "seasonal"]
+    if account_type not in valid_types:
+        account_type = "normal"
+    
+    async with ctx.typing():
+        stats = await self.fetch_player_stats(username, account_type)
         
-        if current_part:
-            parts.append(current_part)
-        
-        if not parts:
-            await ctx.send("❌ Please provide a username!\n\n**Usage:**\n`.osrs \"username with spaces\"`\n`.osrs username_without_spaces`\n\n**Subcommands:**\n`.osrs skill` - Skill analysis\n`.osrs boss` - Boss kills\n`.osrs goals` - Goal calculator\n`.osrs help` - Full help guide")
+        if stats is None:
+            display_username = self.format_username_for_display(username)
+            embed = discord.Embed(
+                title="❌ Player Not Found",
+                description=f"Could not find player '{display_username}' on the {account_type.title()} OSRS Hiscores.\n\n"
+                           f"**Make sure:**\n"
+                           f"• The username is spelled correctly\n"
+                           f"• The player has logged in recently\n"
+                           f"• Use quotes for usernames with spaces: `.osrs stats \"tcp syn ack\"`",
+                color=0xFF0000
+            )
+            await ctx.send(embed=embed)
             return
         
-        username = parts[0]
-        account_type = parts[1].lower() if len(parts) > 1 else "normal"
-        
-        valid_types = ["normal", "ironman", "hardcore", "ultimate", "deadman", "seasonal"]
-        if account_type not in valid_types:
-            account_type = "normal"
-        
-        async with ctx.typing():
-            stats = await self.fetch_player_stats(username, account_type)
-            
-            if stats is None:
-                display_username = self.format_username_for_display(username)
-                embed = discord.Embed(
-                    title="❌ Player Not Found",
-                    description=f"Could not find player '{display_username}' on the {account_type.title()} OSRS Hiscores.\n\n"
-                               f"**Make sure:**\n"
-                               f"• The username is spelled correctly\n"
-                               f"• The player has logged in recently\n"
-                               f"• Use quotes for usernames with spaces: `.osrs \"tcp syn ack\"`",
-                    color=0xFF0000
-                )
-                await ctx.send(embed=embed)
-                return
-            
-            embed = self.create_detailed_overview_embed(username, stats, account_type)
-            await ctx.send(embed=embed)
+        embed = self.create_detailed_overview_embed(username, stats, account_type)
+        await ctx.send(embed=embed)
 
     @osrs_stats.command(name="skill", aliases=["sk", "skills"])
     async def osrs_skill(self, ctx, *, args: str):
