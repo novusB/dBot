@@ -407,7 +407,7 @@ class OSRSStats(commands.Cog):
                 inline=False
             )
         
-        embed.set_footer(text=f"Account Stage: {analysis['account_stage']} • Use .skill for detailed skill analysis")
+        embed.set_footer(text=f"Account Stage: {analysis['account_stage']} • Use .osrs skill/boss/goals for more details")
         return embed
 
     def generate_recommendations(self, stats: dict) -> str:
@@ -443,12 +443,15 @@ class OSRSStats(commands.Cog):
         
         return "\n".join(f"• {rec}" for rec in recommendations[:4])  # Limit to 4 recommendations
 
-    @commands.command(name="osrs", aliases=["osrsstats", "oldschool"])
+    @commands.group(name="osrs", aliases=["osrsstats", "oldschool"], invoke_without_command=True)
     async def osrs_stats(self, ctx, *, args: str):
         """
         Get comprehensive OSRS player statistics with detailed analysis and recommendations.
         
-        Supports all account types (normal, ironman, hardcore, ultimate, deadman, seasonal).
+        Main command that provides complete account overview including combat level, total XP,
+        skill progress, PvM statistics, and personalized recommendations.
+        
+        Supports all account types: normal, ironman, hardcore, ultimate, deadman, seasonal
         Use quotes around usernames with spaces: .osrs "tcp syn ack"
         
         Examples:
@@ -456,6 +459,12 @@ class OSRSStats(commands.Cog):
         .osrs "tcp syn ack" ironman
         .osrs Zezima
         .osrs Zezima hardcore
+        
+        Subcommands available:
+        .osrs skill - Detailed skill analysis
+        .osrs boss - Boss kill counts
+        .osrs goals - XP goal calculator
+        .osrs help - Complete command guide
         """
         # Parse arguments - handle quoted usernames and account types
         parts = []
@@ -481,7 +490,7 @@ class OSRSStats(commands.Cog):
             parts.append(current_part)
         
         if not parts:
-            await ctx.send("❌ Please provide a username!\n\n**Usage:**\n`.osrs \"username with spaces\"`\n`.osrs username_without_spaces`")
+            await ctx.send("❌ Please provide a username!\n\n**Usage:**\n`.osrs \"username with spaces\"`\n`.osrs username_without_spaces`\n\n**Subcommands:**\n`.osrs skill` - Skill analysis\n`.osrs boss` - Boss kills\n`.osrs goals` - Goal calculator\n`.osrs help` - Full help guide")
             return
         
         username = parts[0]
@@ -511,19 +520,25 @@ class OSRSStats(commands.Cog):
             embed = self.create_detailed_overview_embed(username, stats, account_type)
             await ctx.send(embed=embed)
 
-    @commands.command(name="skill", aliases=["sk", "osrsskill", "oldschoolskill"])
+    @osrs_stats.command(name="skill", aliases=["sk", "skills"])
     async def osrs_skill(self, ctx, *, args: str):
         """
         Get detailed analysis of a specific OSRS skill with progress tracking and unlocks.
         
-        Shows XP, level progress, virtual levels, milestones, and skill-specific information.
-        Use quotes around usernames with spaces: .skill "tcp syn ack" woodcutting
+        Shows comprehensive skill information including XP, level progress, virtual levels,
+        milestones, skill-specific unlocks, and training recommendations.
+        
+        Use quotes around usernames with spaces: .osrs skill "tcp syn ack" woodcutting
         
         Examples:
-        .skill "tcp syn ack" woodcutting
-        .skill "tcp syn ack" attack ironman
-        .skill Zezima mining
-        .skill Zezima hp ultimate
+        .osrs skill "tcp syn ack" woodcutting
+        .osrs skill "tcp syn ack" attack ironman
+        .osrs skill Zezima mining
+        .osrs sk Zezima hp ultimate
+        
+        Skill abbreviations supported:
+        hp=Hitpoints, wc=Woodcutting, fm=Firemaking, rc=Runecraft, att=Attack,
+        str=Strength, def=Defence, range=Ranged, mage=Magic, pray=Prayer, etc.
         """
         # Parse arguments - handle quoted usernames
         parts = []
@@ -549,7 +564,7 @@ class OSRSStats(commands.Cog):
             parts.append(current_part)
         
         if len(parts) < 2:
-            await ctx.send("❌ Please provide both username and skill!\n\n**Usage:**\n`.skill \"username with spaces\" skill`\n`.skill username_without_spaces skill`")
+            await ctx.send("❌ Please provide both username and skill!\n\n**Usage:**\n`.osrs skill \"username with spaces\" skill`\n`.osrs skill username_without_spaces skill`")
             return
         
         username = parts[0]
@@ -575,7 +590,7 @@ class OSRSStats(commands.Cog):
                 embed = discord.Embed(
                     title="❌ Player Not Found",
                     description=f"Could not find player '{display_username}' on the OSRS Hiscores.\n\n"
-                               f"Use quotes for usernames with spaces: `.skill \"tcp syn ack\" woodcutting`",
+                               f"Use quotes for usernames with spaces: `.osrs skill \"tcp syn ack\" woodcutting`",
                     color=0xFF0000
                 )
                 await ctx.send(embed=embed)
@@ -712,19 +727,28 @@ class OSRSStats(commands.Cog):
         
         return "\n".join(info) if info else None
 
-    @commands.command(name="boss", aliases=["osrsboss", "osrsbosses", "oldschoolboss"])
+    @osrs_stats.command(name="boss", aliases=["bosses", "pvm"])
     async def osrs_boss(self, ctx, *, args: str):
         """
         Display all boss kill counts and PvM statistics for an OSRS player.
         
-        Shows kill counts for all bosses, raids, and high-level PvM content.
-        Use quotes around usernames with spaces: .boss "tcp syn ack"
+        Shows comprehensive PvM data including kill counts for all bosses, raids,
+        and high-level content. Sorted by kill count with total statistics.
+        
+        Use quotes around usernames with spaces: .osrs boss "tcp syn ack"
         
         Examples:
-        .boss "tcp syn ack"
-        .osrsboss "tcp syn ack" ironman
-        .boss Zezima
-        .osrsbosses Zezima hardcore
+        .osrs boss "tcp syn ack"
+        .osrs boss "tcp syn ack" ironman
+        .osrs boss Zezima
+        .osrs bosses Zezima hardcore
+        .osrs pvm Zezima ultimate
+        
+        Includes all PvM content:
+        • All boss kill counts
+        • Raid completions (CoX, ToB, ToA)
+        • Minigame scores
+        • Clue scroll completions
         """
         # Parse arguments
         parts = []
@@ -750,7 +774,7 @@ class OSRSStats(commands.Cog):
             parts.append(current_part)
         
         if not parts:
-            await ctx.send("❌ Please provide a username!\n\n**Usage:**\n`.boss \"username with spaces\"`\n`.boss username_without_spaces`")
+            await ctx.send("❌ Please provide a username!\n\n**Usage:**\n`.osrs boss \"username with spaces\"`\n`.osrs boss username_without_spaces`")
             return
         
         username = parts[0]
@@ -764,7 +788,7 @@ class OSRSStats(commands.Cog):
                 embed = discord.Embed(
                     title="❌ Player Not Found",
                     description=f"Could not find player '{display_username}' on the OSRS Hiscores.\n\n"
-                               f"Use quotes for usernames with spaces: `.boss \"tcp syn ack\"`",
+                               f"Use quotes for usernames with spaces: `.osrs boss \"tcp syn ack\"`",
                     color=0xFF0000
                 )
                 await ctx.send(embed=embed)
@@ -826,19 +850,29 @@ class OSRSStats(commands.Cog):
             
             await ctx.send(embed=embed)
 
-    @commands.command(name="goals", aliases=["osrsgoals", "osrstargets", "targets"])
+    @osrs_stats.command(name="goals", aliases=["goal", "targets", "target"])
     async def osrs_goals(self, ctx, *, args: str):
         """
         Calculate XP requirements and time estimates to reach target levels in OSRS.
         
-        Shows XP needed, progress percentage, and realistic time estimates for different training methods.
-        Use quotes around usernames with spaces: .goals "tcp syn ack" 99 woodcutting
+        Provides detailed goal analysis including XP needed, progress percentage,
+        and realistic time estimates for different training methods.
+        
+        Use quotes around usernames with spaces: .osrs goals "tcp syn ack" 99 woodcutting
         
         Examples:
-        .goals "tcp syn ack" 99 woodcutting
-        .osrsgoals "tcp syn ack" 90
-        .goals Zezima 99 attack
-        .targets Zezima 85 slayer
+        .osrs goals "tcp syn ack" 99 woodcutting
+        .osrs goals "tcp syn ack" 90
+        .osrs goals Zezima 99 attack
+        .osrs targets Zezima 85 slayer
+        .osrs goal Zezima 126 (virtual levels supported)
+        
+        Features:
+        • XP calculations for levels 1-126
+        • Progress tracking and percentages
+        • Time estimates for popular training methods
+        • Virtual level support (99+)
+        • Milestone tracking (1M, 5M, 10M, etc.)
         """
         # Parse arguments
         parts = []
@@ -864,7 +898,7 @@ class OSRSStats(commands.Cog):
             parts.append(current_part)
         
         if len(parts) < 2:
-            await ctx.send("❌ Please provide username and target level!\n\n**Usage:**\n`.goals \"username with spaces\" 99 skill`\n`.goals username_without_spaces 99 skill`")
+            await ctx.send("❌ Please provide username and target level!\n\n**Usage:**\n`.osrs goals \"username with spaces\" 99 skill`\n`.osrs goals username_without_spaces 99 skill`")
             return
         
         username = parts[0]
@@ -899,7 +933,7 @@ class OSRSStats(commands.Cog):
                 embed = discord.Embed(
                     title="❌ Player Not Found",
                     description=f"Could not find player '{display_username}' on the OSRS Hiscores.\n\n"
-                               f"Use quotes for usernames with spaces: `.goals \"tcp syn ack\" 99 woodcutting`",
+                               f"Use quotes for usernames with spaces: `.osrs goals \"tcp syn ack\" 99 woodcutting`",
                     color=0xFF0000
                 )
                 await ctx.send(embed=embed)
@@ -983,80 +1017,89 @@ class OSRSStats(commands.Cog):
         
         return xp_rates.get(skill, {})
 
-    @commands.command(name="osrshelp", aliases=["osrscommands", "osrsinfo"])
+    @osrs_stats.command(name="help", aliases=["commands", "info"])
     async def osrs_help(self, ctx):
         """
-        Display comprehensive help information for all OSRS commands.
+        Display comprehensive help information for all OSRS commands and subcommands.
         
-        Shows all available commands, aliases, usage examples, and important notes about usernames with spaces.
+        Complete guide covering all available commands, usage examples, account types,
+        skill abbreviations, and important notes about usernames with spaces.
+        
+        Shows detailed information about:
+        • Main stats command (.osrs)
+        • All subcommands (skill, boss, goals, help)
+        • Account type support
+        • Username formatting rules
+        • Skill abbreviations
+        • Usage examples for every command
         """
         embed = discord.Embed(
             title="🗡️ OSRS Stats Commands - Complete Guide",
-            description="All available commands for OSRS stats lookup and analysis",
+            description="Comprehensive guide for all OSRS statistics commands and subcommands",
             color=0x8B4513
         )
         
         embed.add_field(
-            name="📊 Main Stats Commands",
+            name="📊 Main Command",
             value="**`.osrs \"username\" [account_type]`**\n"
                   "**Aliases:** `.osrsstats`, `.oldschool`\n"
                   "Get complete player analysis with recommendations\n\n"
                   "**Examples:**\n"
                   "`.osrs \"tcp syn ack\"` - Normal account\n"
                   "`.osrs \"tcp syn ack\" ironman` - Ironman account\n"
-                  "`.osrsstats Zezima` - No spaces, no quotes needed\n"
-                  "`.oldschool Zezima hardcore` - Hardcore ironman",
+                  "`.osrs Zezima` - No spaces, no quotes needed\n"
+                  "`.osrs Zezima hardcore` - Hardcore ironman",
             inline=False
         )
         
         embed.add_field(
-            name="🎯 Skill Analysis Commands",
-            value="**`.skill \"username\" <skill> [account_type]`**\n"
-                  "**Aliases:** `.sk`, `.osrsskill`, `.oldschoolskill`\n"
+            name="🎯 Skill Analysis Subcommand",
+            value="**`.osrs skill \"username\" <skill> [account_type]`**\n"
+                  "**Aliases:** `.osrs sk`, `.osrs skills`\n"
                   "Get detailed skill information and progress tracking\n\n"
                   "**Examples:**\n"
-                  "`.skill \"tcp syn ack\" woodcutting`\n"
-                  "`.sk \"tcp syn ack\" attack ironman`\n"
-                  "`.osrsskill Zezima mining`\n"
-                  "`.skill Zezima hp ultimate`",
+                  "`.osrs skill \"tcp syn ack\" woodcutting`\n"
+                  "`.osrs sk \"tcp syn ack\" attack ironman`\n"
+                  "`.osrs skill Zezima mining`\n"
+                  "`.osrs skills Zezima hp ultimate`",
             inline=False
         )
         
         embed.add_field(
-            name="🐉 Boss Kill Commands",
-            value="**`.boss \"username\" [account_type]`**\n"
-                  "**Aliases:** `.osrsboss`, `.osrsbosses`, `.oldschoolboss`\n"
+            name="🐉 Boss Kill Subcommand",
+            value="**`.osrs boss \"username\" [account_type]`**\n"
+                  "**Aliases:** `.osrs bosses`, `.osrs pvm`\n"
                   "Display all boss kill counts and PvM statistics\n\n"
                   "**Examples:**\n"
-                  "`.boss \"tcp syn ack\"`\n"
-                  "`.osrsboss \"tcp syn ack\" ironman`\n"
-                  "`.boss Zezima`\n"
-                  "`.osrsbosses Zezima hardcore`",
+                  "`.osrs boss \"tcp syn ack\"`\n"
+                  "`.osrs bosses \"tcp syn ack\" ironman`\n"
+                  "`.osrs boss Zezima`\n"
+                  "`.osrs pvm Zezima hardcore`",
             inline=False
         )
         
         embed.add_field(
-            name="🏆 Goal Calculator Commands",
-            value="**`.goals \"username\" <target_level> [skill]`**\n"
-                  "**Aliases:** `.osrsgoals`, `.osrstargets`, `.targets`\n"
+            name="🏆 Goal Calculator Subcommand",
+            value="**`.osrs goals \"username\" <target_level> [skill]`**\n"
+                  "**Aliases:** `.osrs goal`, `.osrs targets`, `.osrs target`\n"
                   "Calculate XP and time estimates to reach target levels\n\n"
                   "**Examples:**\n"
-                  "`.goals \"tcp syn ack\" 99 woodcutting`\n"
-                  "`.osrsgoals \"tcp syn ack\" 90` - Overall level\n"
-                  "`.targets Zezima 99 attack`\n"
-                  "`.goals Zezima 85 slayer`",
+                  "`.osrs goals \"tcp syn ack\" 99 woodcutting`\n"
+                  "`.osrs goals \"tcp syn ack\" 90` - Overall level\n"
+                  "`.osrs targets Zezima 99 attack`\n"
+                  "`.osrs goal Zezima 85 slayer`",
             inline=False
         )
         
         embed.add_field(
-            name="ℹ️ Help Commands",
-            value="**`.osrshelp`**\n"
-                  "**Aliases:** `.osrscommands`, `.osrsinfo`\n"
+            name="ℹ️ Help Subcommand",
+            value="**`.osrs help`**\n"
+                  "**Aliases:** `.osrs commands`, `.osrs info`\n"
                   "Display this comprehensive help guide\n\n"
                   "**Examples:**\n"
-                  "`.osrshelp` - Show this help menu\n"
-                  "`.osrscommands` - Alternative help command\n"
-                  "`.osrsinfo` - Another help alias",
+                  "`.osrs help` - Show this help menu\n"
+                  "`.osrs commands` - Alternative help command\n"
+                  "`.osrs info` - Another help alias",
             inline=False
         )
         
@@ -1091,11 +1134,11 @@ class OSRSStats(commands.Cog):
         embed.add_field(
             name="⚠️ Important Usage Notes",
             value="• **Always use quotes around usernames with spaces!**\n"
-                  "• Commands use `.` prefix (not `!`)\n"
+                  "• All commands are now subcommands of `.osrs`\n"
                   "• Account type is optional (defaults to normal)\n"
                   "• Skill abbreviations work in all skill commands\n"
                   "• Case doesn't matter for usernames or skills\n"
-                  "• All commands support multiple aliases",
+                  "• All subcommands support multiple aliases",
             inline=False
         )
         
@@ -1103,16 +1146,27 @@ class OSRSStats(commands.Cog):
             name="🔍 Username Format Examples",
             value="**✅ Correct Usage:**\n"
                   "• `.osrs \"tcp syn ack\"` - Spaces with quotes\n"
-                  "• `.skill \"iron man btw\" woodcutting` - Spaces with quotes\n"
-                  "• `.boss Zezima` - No spaces, no quotes needed\n"
-                  "• `.goals Lynx_Titan 99 rc` - Underscores work fine\n\n"
+                  "• `.osrs skill \"iron man btw\" woodcutting` - Spaces with quotes\n"
+                  "• `.osrs boss Zezima` - No spaces, no quotes needed\n"
+                  "• `.osrs goals Lynx_Titan 99 rc` - Underscores work fine\n\n"
                   "**❌ Incorrect Usage:**\n"
                   "• `.osrs tcp syn ack` - Missing quotes\n"
-                  "• `.skill tcp syn ack woodcutting` - Missing quotes",
+                  "• `.osrs skill tcp syn ack woodcutting` - Missing quotes",
             inline=False
         )
         
-        embed.set_footer(text="💡 Pro Tip: Use quotes for ANY username with spaces to avoid errors!")
+        embed.add_field(
+            name="🚀 Quick Start Guide",
+            value="**New to OSRS commands? Start here:**\n"
+                  "1. `.osrs \"your username\"` - Get your stats overview\n"
+                  "2. `.osrs skill \"your username\" attack` - Check a specific skill\n"
+                  "3. `.osrs boss \"your username\"` - See your boss kills\n"
+                  "4. `.osrs goals \"your username\" 99 woodcutting` - Set a goal\n"
+                  "5. `.osrs help` - View this help anytime",
+            inline=False
+        )
+        
+        embed.set_footer(text="💡 Pro Tip: All commands are now organized under .osrs - use subcommands for specific features!")
         
         await ctx.send(embed=embed)
 
