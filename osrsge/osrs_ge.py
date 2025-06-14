@@ -201,16 +201,18 @@ class OSRSGE(commands.Cog):
             # Find the item in the mapping
             target_item = None
             best_match_score = 0
-            
+
             # Try exact match first
             if search_term in item_mapping:
                 target_item = item_mapping[search_term]
+                print(f"Exact match found: {target_item['name']}")
             else:
                 # Fuzzy matching
                 for item_name_lower, item_data in item_mapping.items():
                     # Exact match (highest priority)
                     if item_name_lower == search_term:
                         target_item = item_data
+                        print(f"Exact match found in fuzzy search: {item_data['name']}")
                         break
                     
                     # Partial match scoring
@@ -219,6 +221,7 @@ class OSRSGE(commands.Cog):
                         if score > best_match_score:
                             best_match_score = score
                             target_item = item_data
+                            print(f"Partial match found: {item_data['name']} (score: {score:.2f})")
                     
                     # Also check if the search term starts with the item name
                     elif item_name_lower.startswith(search_term):
@@ -226,6 +229,7 @@ class OSRSGE(commands.Cog):
                         if score > best_match_score:
                             best_match_score = score
                             target_item = item_data
+                            print(f"Prefix match found: {item_data['name']} (score: {score:.2f})")
             
             if not target_item:
                 print(f"No item found matching '{item_name}'")
@@ -252,6 +256,7 @@ class OSRSGE(commands.Cog):
             # Get latest prices (cached)
             latest_prices_data = await self.get_latest_prices_cached()
             item_latest_prices = latest_prices_data.get(str(item_id))
+            print(f"Latest prices for item {item_id}: {item_latest_prices}")
             
             if not item_latest_prices:
                 print(f"No price data found for item ID {item_id}")
@@ -327,6 +332,9 @@ class OSRSGE(commands.Cog):
         """Process and analyze all the fetched data."""
         mapping = raw_data['mapping']
         latest_prices = raw_data['latest_prices']
+
+        print(f"Processing data for: {mapping.get('name', 'Unknown')}")
+        print(f"Latest prices data: {latest_prices}")
         
         if not latest_prices:
             return None
@@ -826,6 +834,7 @@ class OSRSGE(commands.Cog):
             item_name = item_name[1:-1]
         
         async with ctx.typing():
+            print(f"Debug: Searching for item '{item_name}' (cleaned: '{item_name.lower().strip()}')")
             item_data = await self.fetch_comprehensive_ge_data_cached(item_name)
             
             if item_data:
