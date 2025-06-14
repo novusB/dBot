@@ -236,7 +236,8 @@ class OSRSGE(commands.Cog):
             }
             
             # Process and analyze all the data
-            processed_data = self.process_comprehensive_data(comprehensive_data)
+            processed_data = await self.process_comprehensive_data(comprehensive_data)
+            await self.debug_log(f"Final processed data result: {processed_data is not None}")
             
             return processed_data
             
@@ -244,81 +245,111 @@ class OSRSGE(commands.Cog):
             await self.debug_log(f"Error in fetch_comprehensive_ge_data: {e}")
             return None
 
-    def process_comprehensive_data(self, raw_data: Dict[str, Any]) -> Dict[str, Any]:
+    async def process_comprehensive_data(self, raw_data: Dict[str, Any]) -> Dict[str, Any]:
         """Process and analyze all the fetched data."""
-        mapping = raw_data['mapping']
-        latest_prices = raw_data['latest_prices']
+        try:
+            await self.debug_log("Starting data processing...")
+            await self.debug_log(f"Raw data keys: {list(raw_data.keys())}")
+            
+            mapping = raw_data['mapping']
+            latest_prices = raw_data['latest_prices']
+            
+            await self.debug_log(f"Mapping data: {mapping}")
+            await self.debug_log(f"Latest prices data: {latest_prices}")
+            
+            if not latest_prices:
+                await self.debug_log("No latest_prices data - returning None")
+                return None
         
-        if not latest_prices:
+            # Extract basic price information
+            high_price = latest_prices.get('high')
+            low_price = latest_prices.get('low')
+            high_time = latest_prices.get('highTime')
+            low_time = latest_prices.get('lowTime')
+        
+            await self.debug_log(f"Extracted prices - High: {high_price}, Low: {low_price}")
+        
+            # Calculate current price
+            current_price = None
+            if high_price and low_price:
+                current_price = (high_price + low_price) // 2
+                await self.debug_log(f"Calculated current price from both: {current_price}")
+            elif high_price:
+                current_price = high_price
+                await self.debug_log(f"Using high price as current: {current_price}")
+            elif low_price:
+                current_price = low_price
+                await self.debug_log(f"Using low price as current: {current_price}")
+        
+            if not current_price:
+                await self.debug_log("No current price could be calculated - returning None")
+                return None
+        
+            await self.debug_log("Starting price trends analysis...")
+            # Analyze price trends from different timeframes
+            price_trends = await self.analyze_price_trends(raw_data)
+            await self.debug_log(f"Price trends: {price_trends}")
+        
+            await self.debug_log("Starting volume stats calculation...")
+            # Calculate volume statistics
+            volume_stats = await self.calculate_volume_stats(raw_data)
+            await self.debug_log(f"Volume stats: {volume_stats}")
+        
+            await self.debug_log("Starting market activity determination...")
+            # Determine market activity
+            market_activity = await self.determine_market_activity(raw_data)
+            await self.debug_log(f"Market activity: {market_activity}")
+        
+            await self.debug_log("Starting trading metrics calculation...")
+            # Calculate trading metrics
+            trading_metrics = await self.calculate_trading_metrics(raw_data)
+            await self.debug_log(f"Trading metrics: {trading_metrics}")
+        
+            # Compile comprehensive item data
+            processed_data = {
+                # Basic item information
+                'id': mapping['id'],
+                'name': mapping['name'],
+                'examine': mapping.get('examine', 'No examine text available'),
+                'members': mapping.get('members', True),
+                'lowalch': mapping.get('lowalch'),
+                'highalch': mapping.get('highalch'),
+                'limit': mapping.get('limit'),
+                'value': mapping.get('value'),
+                'icon': mapping.get('icon'),
+            
+                # Current pricing
+                'current_price': current_price,
+                'high_price': high_price,
+                'low_price': low_price,
+                'high_time': high_time,
+                'low_time': low_time,
+            
+                # Price trends
+                'price_trends': price_trends,
+            
+                # Volume statistics
+                'volume_stats': volume_stats,
+            
+                # Market activity
+                'market_activity': market_activity,
+            
+                # Trading metrics
+                'trading_metrics': trading_metrics
+            }
+        
+            await self.debug_log("Successfully compiled processed data")
+            return processed_data
+        
+        except Exception as e:
+            await self.debug_log(f"Error in process_comprehensive_data: {e}")
+            import traceback
+            await self.debug_log(f"Traceback: {traceback.format_exc()}")
             return None
-        
-        # Extract basic price information
-        high_price = latest_prices.get('high')
-        low_price = latest_prices.get('low')
-        high_time = latest_prices.get('highTime')
-        low_time = latest_prices.get('lowTime')
-        
-        # Calculate current price
-        current_price = None
-        if high_price and low_price:
-            current_price = (high_price + low_price) // 2
-        elif high_price:
-            current_price = high_price
-        elif low_price:
-            current_price = low_price
-        
-        if not current_price:
-            return None
-        
-        # Analyze price trends from different timeframes
-        price_trends = self.analyze_price_trends(raw_data)
-        
-        # Calculate volume statistics
-        volume_stats = self.calculate_volume_stats(raw_data)
-        
-        # Determine market activity
-        market_activity = self.determine_market_activity(raw_data)
-        
-        # Calculate trading metrics
-        trading_metrics = self.calculate_trading_metrics(raw_data)
-        
-        # Compile comprehensive item data
-        processed_data = {
-            # Basic item information
-            'id': mapping['id'],
-            'name': mapping['name'],
-            'examine': mapping.get('examine', 'No examine text available'),
-            'members': mapping.get('members', True),
-            'lowalch': mapping.get('lowalch'),
-            'highalch': mapping.get('highalch'),
-            'limit': mapping.get('limit'),
-            'value': mapping.get('value'),
-            'icon': mapping.get('icon'),
-            
-            # Current pricing
-            'current_price': current_price,
-            'high_price': high_price,
-            'low_price': low_price,
-            'high_time': high_time,
-            'low_time': low_time,
-            
-            # Price trends
-            'price_trends': price_trends,
-            
-            # Volume statistics
-            'volume_stats': volume_stats,
-            
-            # Market activity
-            'market_activity': market_activity,
-            
-            # Trading metrics
-            'trading_metrics': trading_metrics
-        }
-        
-        return processed_data
 
-    def analyze_price_trends(self, raw_data: Dict[str, Any]) -> Dict[str, Any]:
+    async def analyze_price_trends(self, raw_data: Dict[str, Any]) -> Dict[str, Any]:
         """Analyze price trends across different timeframes."""
+        await self.debug_log("Analyzing price trends...")
         trends = {
             '5m': {'change': None, 'change_percent': None, 'trend': 'neutral'},
             '1h': {'change': None, 'change_percent': None, 'trend': 'neutral'},
@@ -329,33 +360,42 @@ class OSRSGE(commands.Cog):
         # Analyze each timeframe
         for timeframe in ['5m', '1h', '6h', '24h']:
             history_key = f'price_history_{timeframe}'
+            await self.debug_log(f"Checking {timeframe} data...")
             if raw_data.get(history_key):
                 data_points = raw_data[history_key]
+                await self.debug_log(f"{timeframe} has {len(data_points)} data points")
                 if len(data_points) >= 2:
                     recent = data_points[-1]
                     old = data_points[0]
-                    
+                
                     recent_price = recent.get('avgHighPrice') or recent.get('avgLowPrice') or recent.get('highPriceVolume', 0)
                     old_price = old.get('avgHighPrice') or old.get('avgLowPrice') or old.get('highPriceVolume', 0)
-                    
+                
+                    await self.debug_log(f"{timeframe} prices - Recent: {recent_price}, Old: {old_price}")
+                
                     if recent_price and old_price and old_price > 0:
                         change = recent_price - old_price
                         change_percent = (change / old_price) * 100
-                        
+                    
                         trends[timeframe]['change'] = change
                         trends[timeframe]['change_percent'] = change_percent
-                        
+                    
                         if change_percent > 1:
                             trends[timeframe]['trend'] = 'positive'
                         elif change_percent < -1:
                             trends[timeframe]['trend'] = 'negative'
                         else:
                             trends[timeframe]['trend'] = 'neutral'
-        
+                    
+                        await self.debug_log(f"{timeframe} trend: {change_percent:.2f}% ({trends[timeframe]['trend']})")
+        else:
+            await self.debug_log(f"No {timeframe} data available")
+    
         return trends
 
-    def calculate_volume_stats(self, raw_data: Dict[str, Any]) -> Dict[str, Any]:
+    async def calculate_volume_stats(self, raw_data: Dict[str, Any]) -> Dict[str, Any]:
         """Calculate volume statistics from price history."""
+        await self.debug_log("Calculating volume stats...")
         volume_stats = {
             'total_volume_24h': 0,
             'avg_volume_per_hour': 0,
@@ -367,50 +407,59 @@ class OSRSGE(commands.Cog):
         # Calculate from 24h data if available
         if raw_data.get('price_history_24h'):
             data_points = raw_data['price_history_24h']
+            await self.debug_log(f"24h volume data has {len(data_points)} points")
             total_high_volume = 0
             total_low_volume = 0
-            
+        
             for point in data_points:
                 high_vol = point.get('highPriceVolume', 0)
                 low_vol = point.get('lowPriceVolume', 0)
-                
+            
                 total_high_volume += high_vol
                 total_low_volume += low_vol
-            
+        
             volume_stats['total_volume_24h'] = total_high_volume + total_low_volume
             volume_stats['high_volume_trades'] = total_high_volume
             volume_stats['low_volume_trades'] = total_low_volume
-            
+        
             if len(data_points) > 0:
                 volume_stats['avg_volume_per_hour'] = volume_stats['total_volume_24h'] // len(data_points)
         
+            await self.debug_log(f"Volume stats calculated: {volume_stats}")
+        else:
+            await self.debug_log("No 24h volume data available")
+    
         return volume_stats
 
-    def determine_market_activity(self, raw_data: Dict[str, Any]) -> Dict[str, Any]:
+    async def determine_market_activity(self, raw_data: Dict[str, Any]) -> Dict[str, Any]:
         """Determine market activity level."""
+        await self.debug_log("Determining market activity...")
         latest_prices = raw_data.get('latest_prices', {})
-        
+    
         activity = {
             'level': 'unknown',
             'last_trade_time': None,
             'price_stability': 'unknown',
             'liquidity': 'unknown'
         }
-        
+    
         # Determine last trade time
         high_time = latest_prices.get('highTime')
         low_time = latest_prices.get('lowTime')
-        
+    
+        await self.debug_log(f"Trade times - High: {high_time}, Low: {low_time}")
+    
         if high_time and low_time:
             activity['last_trade_time'] = max(high_time, low_time)
         elif high_time:
             activity['last_trade_time'] = high_time
         elif low_time:
             activity['last_trade_time'] = low_time
-        
+    
         # Determine activity level based on recent trades
         if activity['last_trade_time']:
             time_since_trade = datetime.now().timestamp() - activity['last_trade_time']
+            await self.debug_log(f"Time since trade: {time_since_trade} seconds")
             if time_since_trade < 300:  # 5 minutes
                 activity['level'] = 'very_high'
             elif time_since_trade < 1800:  # 30 minutes
@@ -421,13 +470,14 @@ class OSRSGE(commands.Cog):
                 activity['level'] = 'low'
             else:
                 activity['level'] = 'very_low'
-        
+    
         # Determine price stability
         high_price = latest_prices.get('high')
         low_price = latest_prices.get('low')
-        
+    
         if high_price and low_price and low_price > 0:
             spread_percent = ((high_price - low_price) / low_price) * 100
+            await self.debug_log(f"Price spread: {spread_percent:.2f}%")
             if spread_percent < 1:
                 activity['price_stability'] = 'very_stable'
             elif spread_percent < 3:
@@ -436,14 +486,16 @@ class OSRSGE(commands.Cog):
                 activity['price_stability'] = 'moderate'
             else:
                 activity['price_stability'] = 'volatile'
-        
+    
+        await self.debug_log(f"Market activity determined: {activity}")
         return activity
 
-    def calculate_trading_metrics(self, raw_data: Dict[str, Any]) -> Dict[str, Any]:
+    async def calculate_trading_metrics(self, raw_data: Dict[str, Any]) -> Dict[str, Any]:
         """Calculate advanced trading metrics."""
+        await self.debug_log("Calculating trading metrics...")
         latest_prices = raw_data.get('latest_prices', {})
         mapping = raw_data.get('mapping', {})
-        
+    
         metrics = {
             'spread_gp': None,
             'spread_percent': None,
@@ -452,21 +504,23 @@ class OSRSGE(commands.Cog):
             'alch_profit': None,
             'margin_rating': 'unknown'
         }
-        
+    
         high_price = latest_prices.get('high')
         low_price = latest_prices.get('low')
         high_alch = mapping.get('highalch')
-        
+    
+        await self.debug_log(f"Trading calc - High: {high_price}, Low: {low_price}, Alch: {high_alch}")
+    
         if high_price and low_price:
             # Calculate spread
             spread = high_price - low_price
             spread_percent = (spread / low_price) * 100
-            
+        
             metrics['spread_gp'] = spread
             metrics['spread_percent'] = spread_percent
             metrics['flip_profit'] = spread
             metrics['roi_percent'] = spread_percent
-            
+        
             # Determine margin rating
             if spread_percent > 10:
                 metrics['margin_rating'] = 'excellent'
@@ -477,12 +531,16 @@ class OSRSGE(commands.Cog):
             else:
                 metrics['margin_rating'] = 'poor'
         
+            await self.debug_log(f"Spread calculated: {spread} gp ({spread_percent:.2f}%)")
+    
         # Calculate alch profit
         if high_alch and high_price:
             # Assuming nature rune cost ~200gp
             alch_cost = 200
             metrics['alch_profit'] = high_alch - high_price - alch_cost
-        
+            await self.debug_log(f"Alch profit: {metrics['alch_profit']} gp")
+    
+        await self.debug_log(f"Trading metrics: {metrics}")
         return metrics
 
     def get_price_emoji(self, trend: str, change_percent: float = None) -> str:
