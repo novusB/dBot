@@ -87,6 +87,11 @@ class OSRSGE(commands.Cog):
                     # Convert to dict for faster lookups
                     item_mapping = {item['name'].lower(): item for item in mapping_data}
                     print(f"Loaded {len(item_mapping)} items in mapping")
+                    
+                    # Debug: Show some sample items from mapping
+                    sample_items = list(item_mapping.items())[:5]
+                    print(f"Debug: Sample mapping items: {sample_items}")
+                    
                     return item_mapping
                 else:
                     print(f"Failed to fetch item mapping, status: {response.status}")
@@ -192,6 +197,16 @@ class OSRSGE(commands.Cog):
             item_latest_prices = latest_prices_data.get(str(item_id))
             print(f"Latest prices for item {item_id}: {item_latest_prices}")
             
+            # Debug: Check what we actually got from the API
+            print(f"Debug: Raw latest_prices_data keys (first 10): {list(latest_prices_data.keys())[:10]}")
+            print(f"Debug: Looking for item_id as string: '{str(item_id)}'")
+            print(f"Debug: Item ID type: {type(item_id)}")
+            print(f"Debug: Available item IDs around our target:")
+            target_id_str = str(item_id)
+            for key in list(latest_prices_data.keys())[:20]:
+                if abs(int(key) - item_id) < 10:  # Show IDs close to our target
+                    print(f"  - {key}: {latest_prices_data[key]}")
+            
             if not item_latest_prices:
                 print(f"No price data found for item ID {item_id}")
                 return None
@@ -226,6 +241,10 @@ class OSRSGE(commands.Cog):
 
         print(f"Processing data for: {mapping.get('name', 'Unknown')}")
         print(f"Latest prices data: {latest_prices}")
+        
+        print(f"Debug: Raw data keys: {list(raw_data.keys())}")
+        print(f"Debug: Mapping keys: {list(mapping.keys()) if mapping else 'None'}")
+        print(f"Debug: Latest prices type: {type(latest_prices)}")
         
         if not latest_prices:
             return None
