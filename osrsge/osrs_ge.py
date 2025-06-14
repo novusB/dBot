@@ -165,29 +165,41 @@ class OSRSGE(commands.Cog):
                 target_item = item_mapping[search_term]
                 await self.debug_log(f"Exact match found: {target_item['name']}")
             else:
-                # Fuzzy matching
+                # Fuzzy matching - try multiple approaches
+                await self.debug_log(f"Trying fuzzy matching for '{search_term}'")
+                
+                # Approach 1: Partial matches
                 for item_name_lower, item_data in item_mapping.items():
-                    # Exact match (highest priority)
-                    if item_name_lower == search_term:
-                        target_item = item_data
-                        await self.debug_log(f"Exact match found in fuzzy search: {item_data['name']}")
-                        break
-                    
-                    # Partial match scoring
+                    # Check if search term is contained in item name
                     if search_term in item_name_lower:
                         score = len(search_term) / len(item_name_lower)
                         if score > best_match_score:
                             best_match_score = score
                             target_item = item_data
                             await self.debug_log(f"Partial match found: {item_data['name']} (score: {score:.2f})")
-                    
-                    # Also check if the search term starts with the item name
-                    elif item_name_lower.startswith(search_term):
-                        score = len(search_term) / len(item_name_lower)
-                        if score > best_match_score:
-                            best_match_score = score
-                            target_item = item_data
-                            await self.debug_log(f"Prefix match found: {item_data['name']} (score: {score:.2f})")
+                
+                # Approach 2: Check if item name starts with search term
+                if not target_item:
+                    for item_name_lower, item_data in item_mapping.items():
+                        if item_name_lower.startswith(search_term):
+                            score = len(search_term) / len(item_name_lower)
+                            if score > best_match_score:
+                                best_match_score = score
+                                target_item = item_data
+                                await self.debug_log(f"Prefix match found: {item_data['name']} (score: {score:.2f})")
+                
+                # Approach 3: Check if search term contains any words from item name
+                if not target_item:
+                    search_words = search_term.split()
+                    for item_name_lower, item_data in item_mapping.items():
+                        item_words = item_name_lower.split()
+                        matching_words = sum(1 for word in search_words if any(word in item_word for item_word in item_words))
+                        if matching_words > 0:
+                            score = matching_words / len(search_words)
+                            if score > best_match_score:
+                                best_match_score = score
+                                target_item = item_data
+                                await self.debug_log(f"Word match found: {item_data['name']} (score: {score:.2f})")
             
             if not target_item:
                 await self.debug_log(f"No item found matching '{item_name}'")
@@ -779,8 +791,14 @@ class OSRSGE(commands.Cog):
 
     @commands.command(name="getest")
     @commands.is_owner()
-    async def ge_test(self, ctx, item_name: str = "whip"):
+    async def ge_test(self, ctx, *, item_name: str = "abyssal whip"):
         """Test GE API calls with detailed output."""
+        # Handle quoted item names properly
+        if item_name.startswith('"') and item_name.endswith('"'):
+            item_name = item_name[1:-1]
+        elif item_name.startswith("'") and item_name.endswith("'"):
+            item_name = item_name[1:-1]
+        
         await ctx.send(f"Testing GE API with item: {item_name}")
         
         # Enable debug mode temporarily
@@ -793,33 +811,69 @@ class OSRSGE(commands.Cog):
             mapping = await self.get_item_mapping()
             await ctx.send(f"✅ Mapping loaded: {len(mapping)} items")
             
-            # Test search
+            # Test search with better matching
             search_term = item_name.lower().strip()
+            await ctx.send(f"🔍 Searching for: '{search_term}'")
+            
+            # Try exact match first
+            target_item = None
             if search_term in mapping:
-                item = mapping[search_term]
-                await ctx.send(f"✅ Found item: {item['name']} (ID: {item['id']})")
-                
-                # Test prices
-                await ctx.send("📡 Testing latest prices API...")
-                prices = await self.get_latest_prices()
-                await ctx.send(f"✅ Prices loaded: {len(prices)} items")
-                
-                item_price = prices.get(str(item['id']))
-                if item_price:
-                    await ctx.send(f"✅ Price data found: {item_price}")
-                else:
-                    await ctx.send(f"❌ No price data for ID {item['id']}")
-                    # Show some available IDs
-                    available = list(prices.keys())[:10]
-                    await ctx.send(f"Available IDs: {available}")
+                target_item = mapping[search_term]
+                await ctx.send(f"✅ Exact match found: {target_item['name']} (ID: {target_item['id']})")
             else:
-                await ctx.send(f"❌ Item '{item_name}' not found in mapping")
+                # Try fuzzy matching
+                matches = []
+                for item_name_lower, item_data in mapping.items():
+                    if search_term in item_name_lower:
+                        matches.append((item_data['name'], item_data['id']))
+                        if len(matches) >= 5:  # Limit to first 5 matches
+                            break
+            
+            if matches:
+                await ctx.send(f"🔍 Found {len(matches)} partial matches:")
+                for name, item_id in matches[:3]:
+                    await ctx.send(f"  • {name} (ID: {item_id})")
                 
-        except Exception as e:
-            await ctx.send(f"❌ Error during test: {e}")
-        finally:
-            # Restore debug mode
-            self.debug_mode = old_debug
+                # Use the first match for testing
+                target_item = mapping[matches[0][0].lower()]
+                await ctx.send(f"✅ Using first match: {target_item['name']} (ID: {target_item['id']})")
+            else:
+                await ctx.send(f"❌ No matches found for '{search_term}'")
+                # Show some sample items
+                sample_items = list(mapping.keys())[:10]
+                await ctx.send(f"Sample items in mapping: {sample_items}")
+                return
+        
+        # Test prices
+        await ctx.send("📡 Testing latest prices API...")
+        prices = await self.get_latest_prices()
+        await ctx.send(f"✅ Prices loaded: {len(prices)} items")
+        
+        item_price = prices.get(str(target_item['id']))
+        if item_price:
+            await ctx.send(f"✅ Price data found: {item_price}")
+            
+            # Test full data fetch
+            await ctx.send("📡 Testing full data fetch...")
+            full_data = await self.fetch_comprehensive_ge_data(item_name)
+            if full_data:
+                await ctx.send(f"✅ Full data processed successfully!")
+                await ctx.send(f"Current price: {self.format_number(full_data['current_price'])} gp")
+            else:
+                await ctx.send("❌ Failed to process full data")
+        else:
+            await ctx.send(f"❌ No price data for ID {target_item['id']}")
+            # Show some available IDs
+            available = list(prices.keys())[:10]
+            await ctx.send(f"Available price IDs: {available}")
+            
+    except Exception as e:
+        await ctx.send(f"❌ Error during test: {e}")
+        import traceback
+        await ctx.send(f"Traceback: {traceback.format_exc()}")
+    finally:
+        # Restore debug mode
+        self.debug_mode = old_debug
 
     @commands.command(name="gehistory", aliases=["gehist"])
     async def ge_history(self, ctx):
