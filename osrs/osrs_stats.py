@@ -284,15 +284,15 @@ class OSRSStats(commands.Cog):
             prayer = stats["skills"]["Prayer"]["level"]
             ranged = stats["skills"]["Ranged"]["level"]
             magic = stats["skills"]["Magic"]["level"]
-            
+        
             base = 0.25 * (defence + hitpoints + math.floor(prayer / 2))
             melee = 0.325 * (attack + strength)
             ranged_level = 0.325 * (ranged * 1.5)
             magic_level = 0.325 * (magic * 1.5)
-            
+        
             combat_level = base + max(melee, ranged_level, magic_level)
             return int(combat_level)
-        except:
+        except Exception:
             return 3
 
     def format_number(self, num: int) -> str:
@@ -1315,6 +1315,7 @@ class OSRSStats(commands.Cog):
             embed.set_thumbnail(url=item_data['icon_large'])
         
         # Current price and daily change
+        
         price_emoji = self.get_price_emoji('', price_change_percent)
         price_text = f"**Current Price:** {self.format_number(current_price)} gp\n"
         
