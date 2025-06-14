@@ -303,6 +303,7 @@ class OSRSGE(commands.Cog):
         )
     
         # Price spread analysis
+        margin_text = ""
         if high_price and low_price and high_price != low_price:
             spread = high_price - low_price
             spread_percent = (spread / low_price) * 100
@@ -311,17 +312,18 @@ class OSRSGE(commands.Cog):
             # Calculate potential profit margins
             if spread > 0:
                 margin_text += f"**Flip Profit:** {self.format_number(spread)} gp per item\n"
-            
-                # Show profit for common quantities
-                for qty in [100, 1000]:
-                    if qty * spread < 10000000:  # Don't show unrealistic profits
-                        margin_text += f"**{qty}x Flip:** {self.format_number(qty * spread)} gp\n"
         
-        embed.add_field(
-            name="📊 Trading Analysis",
-            value=margin_text,
-            inline=True
-        )
+            # Show profit for common quantities
+            for qty in [100, 1000]:
+                if qty * spread < 10000000:  # Don't show unrealistic profits
+                    margin_text += f"**{qty}x Flip:** {self.format_number(qty * spread)} gp\n"
+
+        if margin_text:
+            embed.add_field(
+                name="📊 Trading Analysis",
+                value=margin_text,
+                inline=True
+            )
     
         # Popular price calculations
         if current_price:
@@ -343,7 +345,7 @@ class OSRSGE(commands.Cog):
         # Investment insights for expensive items
         if current_price and current_price > 1000000:  # 1M+ items
             insights_text = ""
-        
+            
             if price_change_percent and abs(price_change_percent) > 2:
                 if price_change_percent > 5:
                     insights_text += "🔥 **Hot Item:** Significant price increase!\n"
@@ -353,20 +355,22 @@ class OSRSGE(commands.Cog):
                     insights_text += "📈 **Rising:** Good time to sell\n"
                 elif price_change_percent < -2:
                     insights_text += "📉 **Falling:** Potential buying opportunity\n"
-        
+            
             if high_price and low_price:
                 spread_percent = ((high_price - low_price) / low_price) * 100
                 if spread_percent > 5:
                     insights_text += "💰 **High spread:** Good for flipping\n"
                 elif spread_percent < 1:
                     insights_text += "📊 **Stable market:** Low volatility\n"
-        
-        if insights_text:
-            embed.add_field(
-                name="💡 Market Insights",
-                value=insights_text,
-                inline=False
-            )
+            
+            if insights_text:
+                embed.add_field(
+                    name="💡 Market Insights",
+                    value=insights_text,
+                    inline=False
+                )
+        else:
+            insights_text = ""
     
         embed.set_footer(text=f"💡 Real-time data from OSRS Wiki • Updated every 5 minutes • v{self.version}")
     
@@ -393,6 +397,12 @@ class OSRSGE(commands.Cog):
         • Item descriptions and details
         • Quick price calculations for common quantities
         """
+        # Handle quoted item names properly
+        if item_name.startswith('"') and item_name.endswith('"'):
+            item_name = item_name[1:-1]  # Remove surrounding quotes
+        elif item_name.startswith("'") and item_name.endswith("'"):
+            item_name = item_name[1:-1]  # Remove surrounding single quotes
+        
         async with ctx.typing():
             item_data = await self.fetch_ge_prices(item_name)
             
