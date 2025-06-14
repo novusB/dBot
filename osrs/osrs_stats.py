@@ -487,46 +487,46 @@ class OSRSStats(commands.Cog):
                 if current_part:
                     parts.append(current_part)
                     current_part = ""
-        elif char == ' ' and not in_quotes:
-            if current_part:
-                parts.append(current_part)
-                current_part = ""
-        else:
-            current_part += char
-    
-    if current_part:
-        parts.append(current_part)
-    
-    if not parts:
-        await ctx.send("❌ Please provide a username!\n\n**Usage:**\n`.osrs stats \"username with spaces\"`\n`.osrs stats username_without_spaces`\n\n**Examples:**\n`.osrs stats \"tcp syn ack\"`\n`.osrs stats Zezima ironman`")
-        return
-    
-    username = parts[0]
-    account_type = parts[1].lower() if len(parts) > 1 else "normal"
-    
-    valid_types = ["normal", "ironman", "hardcore", "ultimate", "deadman", "seasonal"]
-    if account_type not in valid_types:
-        account_type = "normal"
-    
-    async with ctx.typing():
-        stats = await self.fetch_player_stats(username, account_type)
+            elif char == ' ' and not in_quotes:
+                if current_part:
+                    parts.append(current_part)
+                    current_part = ""
+            else:
+                current_part += char
         
-        if stats is None:
-            display_username = self.format_username_for_display(username)
-            embed = discord.Embed(
-                title="❌ Player Not Found",
-                description=f"Could not find player '{display_username}' on the {account_type.title()} OSRS Hiscores.\n\n"
-                           f"**Make sure:**\n"
-                           f"• The username is spelled correctly\n"
-                           f"• The player has logged in recently\n"
-                           f"• Use quotes for usernames with spaces: `.osrs stats \"tcp syn ack\"`",
-                color=0xFF0000
-            )
-            await ctx.send(embed=embed)
+        if current_part:
+            parts.append(current_part)
+    
+        if not parts:
+            await ctx.send("❌ Please provide a username!\n\n**Usage:**\n`.osrs stats \"username with spaces\"`\n`.osrs stats username_without_spaces`\n\n**Examples:**\n`.osrs stats \"tcp syn ack\"`\n`.osrs stats Zezima ironman`")
             return
+    
+        username = parts[0]
+        account_type = parts[1].lower() if len(parts) > 1 else "normal"
+    
+        valid_types = ["normal", "ironman", "hardcore", "ultimate", "deadman", "seasonal"]
+        if account_type not in valid_types:
+            account_type = "normal"
+    
+        async with ctx.typing():
+            stats = await self.fetch_player_stats(username, account_type)
         
-        embed = self.create_detailed_overview_embed(username, stats, account_type)
-        await ctx.send(embed=embed)
+            if stats is None:
+                display_username = self.format_username_for_display(username)
+                embed = discord.Embed(
+                    title="❌ Player Not Found",
+                    description=f"Could not find player '{display_username}' on the {account_type.title()} OSRS Hiscores.\n\n"
+                               f"**Make sure:**\n"
+                               f"• The username is spelled correctly\n"
+                               f"• The player has logged in recently\n"
+                               f"• Use quotes for usernames with spaces: `.osrs stats \"tcp syn ack\"`",
+                    color=0xFF0000
+                )
+                await ctx.send(embed=embed)
+                return
+        
+            embed = self.create_detailed_overview_embed(username, stats, account_type)
+            await ctx.send(embed=embed)
 
     @osrs_stats.command(name="skill", aliases=["sk", "skills"])
     async def osrs_skill(self, ctx, *, args: str):
@@ -1342,3 +1342,48 @@ class OSRSStats(commands.Cog):
         embed.set_footer(text="💡 Prices update daily • Data from OSRS Grand Exchange API")
         
         return embed
+
+    @osrs_stats.command(name="ge", aliases=["grandexchange", "price"])
+    async def osrs_grandexchange(self, ctx, *, item_name: str):
+        """
+        Fetch Grand Exchange prices and trends for any OSRS item.
+        
+        Provides detailed item information including current price, daily change,
+        long-term trends, and market insights.
+        
+        Examples:
+        .osrs ge whip
+        .osrs grandexchange "dragon scimitar"
+        .osrs price "twisted bow"
+        
+        Features:
+        • Real-time Grand Exchange prices
+        • Daily price change and percentage
+        • Long-term price trends (30, 90, 180 days)
+        • Market insights and investment opportunities
+        • Item descriptions and details
+        • Quick price calculations for common quantities
+        """
+        async with ctx.typing():
+            item_data = await self.fetch_ge_prices(item_name)
+            
+            if item_data:
+                embed = self.create_ge_embed(item_data)
+                await ctx.send(embed=embed)
+            else:
+                popular_items = self.get_popular_items()
+                suggestions = "\n".join(f"• {item}" for item in popular_items[:5])
+                
+                embed = discord.Embed(
+                    title="❌ Item Not Found",
+                    description=f"Could not find item '{item_name}' on the Grand Exchange.\n\n"
+                                f"**Suggestions:**\n{suggestions}\n\n"
+                                f"**Make sure:**\n"
+                                f"• The item name is spelled correctly\n"
+                                f"• Use quotes for items with spaces: `.osrs ge \"dragon scimitar\"`",
+                    color=0xFF0000
+                )
+                await ctx.send(embed=embed)
+
+async def setup(bot: Red):
+    await bot.add_cog(OSRSStats(bot))
