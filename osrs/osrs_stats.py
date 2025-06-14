@@ -1071,100 +1071,149 @@ class OSRSStats(commands.Cog):
     async def fetch_ge_prices(self, item_name: str) -> Optional[dict]:
         """Fetch Grand Exchange prices for an item using the OSRS API."""
         try:
-            # First, search for the item ID using the item name
-            search_url = f"https://secure.runescape.com/m=itemdb_oldschool/api/catalogue/items.json?category=1&alpha={item_name[0].lower()}&page=1"
+            # Try multiple search strategies
+            search_strategies = [
+                # Strategy 1: Search by first letter
+                f"https://secure.runescape.com/m=itemdb_oldschool/api/catalogue/items.json?category=1&alpha={item_name[0].lower()}&page=1",
+                # Strategy 2: Search all categories if first letter fails
+                "https://secure.runescape.com/m=itemdb_oldschool/api/catalogue/items.json?category=1&alpha=a&page=1"
+            ]
             
-            async with self.session.get(search_url) as response:
-                if response.status != 200:
-                    return None
-                
-                search_data = await response.json()
-                
-                # Find the best matching item
-                best_match = None
-                exact_match = None
-                
-                for item in search_data.get('items', []):
-                    item_display_name = item['name'].lower()
-                    search_term = item_name.lower()
+            target_item = None
+            
+            for search_url in search_strategies:
+                async with self.session.get(search_url) as response:
+                    if response.status != 200:
+                        continue
                     
-                    # Check for exact match first
-                    if item_display_name == search_term:
-                        exact_match = item
+                    search_data = await response.json()
+                    
+                    # Find the best matching item
+                    best_match = None
+                    exact_match = None
+                    partial_matches = []
+                    
+                    search_term = item_name.lower().strip()
+                    
+                    for item in search_data.get('items', []):
+                        item_display_name = item['name'].lower()
+                        
+                        # Check for exact match first
+                        if item_display_name == search_term:
+                            exact_match = item
+                            break
+                        
+                        # Check for partial matches
+                        if search_term in item_display_name:
+                            partial_matches.append(item)
+                        elif item_display_name in search_term:
+                            partial_matches.append(item)
+                        
+                        # Check for word matches (for items like "dragon scimitar")
+                        search_words = search_term.split()
+                        item_words = item_display_name.split()
+                        
+                        if len(search_words) > 1:
+                            word_matches = sum(1 for word in search_words if word in item_words)
+                            if word_matches >= len(search_words) * 0.7:  # 70% word match
+                                partial_matches.append(item)
+                    
+                    target_item = exact_match
+                    if not target_item and partial_matches:
+                        # Sort partial matches by name length (shorter names are often more relevant)
+                        partial_matches.sort(key=lambda x: len(x['name']))
+                        target_item = partial_matches[0]
+                    
+                    if target_item:
                         break
+            
+            # If still no match, try searching through more pages
+            if not target_item:
+                for page in range(1, 4):  # Search first 3 pages
+                    search_url = f"https://secure.runescape.com/m=itemdb_oldschool/api/catalogue/items.json?category=1&alpha={item_name[0].lower()}&page={page}"
                     
-                    # Check for partial matches
-                    if search_term in item_display_name or item_display_name in search_term:
-                        if not best_match or len(item_display_name) < len(best_match['name']):
-                            best_match = item
-                
-                target_item = exact_match or best_match
-                
-                if not target_item:
+                    async with self.session.get(search_url) as response:
+                        if response.status != 200:
+                            continue
+                        
+                        search_data = await response.json()
+                        search_term = item_name.lower().strip()
+                        
+                        for item in search_data.get('items', []):
+                            item_display_name = item['name'].lower()
+                            
+                            if search_term in item_display_name or item_display_name in search_term:
+                                target_item = item
+                                break
+                        
+                        if target_item:
+                            break
+            
+            if not target_item:
+                return None
+            
+            # Now fetch the detailed price information
+            item_id = target_item['id']
+            detail_url = f"https://secure.runescape.com/m=itemdb_oldschool/api/catalogue/detail.json?item={item_id}"
+            
+            async with self.session.get(detail_url) as detail_response:
+                if detail_response.status != 200:
                     return None
                 
-                # Now fetch the detailed price information
-                item_id = target_item['id']
-                detail_url = f"https://secure.runescape.com/m=itemdb_oldschool/api/catalogue/detail.json?item={item_id}"
+                detail_data = await detail_response.json()
+                item_detail = detail_data.get('item', {})
                 
-                async with self.session.get(detail_url) as detail_response:
-                    if detail_response.status != 200:
+                # Parse price strings and convert to integers
+                def parse_price(price_str):
+                    if not price_str or price_str == 'N/A':
                         return None
                     
-                    detail_data = await detail_response.json()
-                    item_detail = detail_data.get('item', {})
+                    # Remove commas and handle 'k' and 'm' suffixes
+                    price_str = str(price_str).replace(',', '').strip()
                     
-                    # Parse price strings and convert to integers
-                    def parse_price(price_str):
-                        if not price_str or price_str == 'N/A':
+                    if price_str.endswith('k'):
+                        return int(float(price_str[:-1]) * 1000)
+                    elif price_str.endswith('m'):
+                        return int(float(price_str[:-1]) * 1000000)
+                    else:
+                        try:
+                            return int(float(price_str))
+                        except:
                             return None
-                        
-                        # Remove commas and handle 'k' and 'm' suffixes
-                        price_str = price_str.replace(',', '').strip()
-                        
-                        if price_str.endswith('k'):
-                            return int(float(price_str[:-1]) * 1000)
-                        elif price_str.endswith('m'):
-                            return int(float(price_str[:-1]) * 1000000)
-                        else:
-                            try:
-                                return int(price_str)
-                            except:
-                                return None
-                    
-                    current_price = parse_price(item_detail.get('current', {}).get('price', '0'))
-                    today_price = parse_price(item_detail.get('today', {}).get('price', '0'))
-                    
-                    # Calculate price change
-                    price_change = None
-                    price_change_percent = None
-                    
-                    if current_price and today_price and today_price != 0:
-                        price_change = current_price - today_price
-                        price_change_percent = (price_change / today_price) * 100
-                    
-                    return {
-                        'id': item_id,
-                        'name': item_detail.get('name', target_item['name']),
-                        'description': item_detail.get('description', ''),
-                        'current_price': current_price,
-                        'today_price': today_price,
-                        'price_change': price_change,
-                        'price_change_percent': price_change_percent,
-                        'icon': item_detail.get('icon', ''),
-                        'icon_large': item_detail.get('icon_large', ''),
-                        'type': item_detail.get('type', ''),
-                        'members': item_detail.get('members', 'true') == 'true',
-                        'day30_trend': item_detail.get('day30', {}).get('trend', 'neutral'),
-                        'day90_trend': item_detail.get('day90', {}).get('trend', 'neutral'),
-                        'day180_trend': item_detail.get('day180', {}).get('trend', 'neutral'),
-                        'day30_change': item_detail.get('day30', {}).get('change', 'N/A'),
-                        'day90_change': item_detail.get('day90', {}).get('change', 'N/A'),
-                        'day180_change': item_detail.get('day180', {}).get('change', 'N/A')
-                    }
-                    
+            
+            current_price = parse_price(item_detail.get('current', {}).get('price', '0'))
+            today_price = parse_price(item_detail.get('today', {}).get('price', '0'))
+            
+            # Calculate price change
+            price_change = None
+            price_change_percent = None
+            
+            if current_price and today_price and today_price != 0:
+                price_change = current_price - today_price
+                price_change_percent = (price_change / today_price) * 100
+            
+            return {
+                'id': item_id,
+                'name': item_detail.get('name', target_item['name']),
+                'description': item_detail.get('description', ''),
+                'current_price': current_price,
+                'today_price': today_price,
+                'price_change': price_change,
+                'price_change_percent': price_change_percent,
+                'icon': item_detail.get('icon', ''),
+                'icon_large': item_detail.get('icon_large', ''),
+                'type': item_detail.get('type', ''),
+                'members': item_detail.get('members', 'true') == 'true',
+                'day30_trend': item_detail.get('day30', {}).get('trend', 'neutral'),
+                'day90_trend': item_detail.get('day90', {}).get('trend', 'neutral'),
+                'day180_trend': item_detail.get('day180', {}).get('trend', 'neutral'),
+                'day30_change': item_detail.get('day30', {}).get('change', 'N/A'),
+                'day90_change': item_detail.get('day90', {}).get('change', 'N/A'),
+                'day180_change': item_detail.get('day180', {}).get('change', 'N/A')
+            }
+            
         except Exception as e:
-            print(f"Error fetching GE prices: {e}")
+            print(f"Error fetching GE prices for '{item_name}': {e}")
             return None
 
     def get_price_emoji(self, trend: str, change_percent: float = None) -> str:
@@ -1191,16 +1240,18 @@ class OSRSStats(commands.Cog):
     def get_popular_items(self) -> List[str]:
         """Get a list of popular OSRS items for suggestions."""
         return [
-            "Dragon scimitar", "Whip", "Dragon claws", "Bandos chestplate", "Armadyl crossbow",
-            "Twisted bow", "Scythe of vitur", "Tumeken's shadow", "Dragon hunter lance",
-            "Blowpipe", "Trident of the seas", "Occult necklace", "Berserker ring (i)",
-            "Dragon boots", "Barrows gloves", "Fire cape", "Infernal cape", "Ava's assembler",
-            "Shark", "Karambwan", "Prayer potion(4)", "Super combat potion(4)", "Ranging potion(4)",
-            "Magic logs", "Yew logs", "Dragon bones", "Big bones", "Rune ore", "Adamant ore",
-            "Nature rune", "Blood rune", "Death rune", "Chaos rune", "Cannonball",
-            "Dragon dart tip", "Rune arrow", "Adamant arrow", "Coal", "Iron ore",
-            "Lobster", "Monkfish", "Anglerfish", "Saradomin brew(4)", "Super restore(4)",
-            "Stamina potion(4)", "Divine super combat potion(4)", "Extended antifire(4)"
+            "Abyssal whip", "Dragon scimitar", "Dragon claws", "Bandos chestplate", 
+            "Armadyl crossbow", "Twisted bow", "Scythe of vitur", "Tumeken's shadow", 
+            "Dragon hunter lance", "Toxic blowpipe", "Trident of the seas", 
+            "Occult necklace", "Berserker ring (i)", "Dragon boots", "Barrows gloves",
+            "Fire cape", "Infernal cape", "Ava's assembler", "Shark", "Karambwan", 
+            "Prayer potion(4)", "Super combat potion(4)", "Ranging potion(4)",
+            "Magic logs", "Yew logs", "Dragon bones", "Big bones", "Rune ore", 
+            "Adamant ore", "Nature rune", "Blood rune", "Death rune", "Chaos rune", 
+            "Cannonball", "Dragon dart tip", "Rune arrow", "Adamant arrow", "Coal", 
+            "Iron ore", "Lobster", "Monkfish", "Anglerfish", "Saradomin brew(4)", 
+            "Super restore(4)", "Stamina potion(4)", "Divine super combat potion(4)", 
+            "Extended antifire(4)", "Rune platebody", "Adamant platebody", "Mithril ore"
         ]
 
     def create_ge_embed(self, item_data: dict) -> discord.Embed:
