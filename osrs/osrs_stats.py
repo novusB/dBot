@@ -154,7 +154,7 @@ class OSRSStats(commands.Cog):
         embed.set_footer(text="Data from OSRS Hiscores")
         return embed
 
-    @commands.command(name="osrs", aliases=["osrsstats", "rs"])
+    @commands.command(name="osrs", aliases=["osrsstats", "oldschool"])
     async def osrs_stats(self, ctx, *, username: str):
         """
         Fetch and display OSRS player statistics.
@@ -180,7 +180,7 @@ class OSRSStats(commands.Cog):
             embed = self.create_stats_embed(username, stats)
             await ctx.send(embed=embed)
 
-    @commands.command(name="osrsskill")
+    @commands.command(name="osrsskill", aliases=["osrssk", "oldschoolskill"])
     async def osrs_skill(self, ctx, username: str, skill: str):
         """
         Get detailed information about a specific skill.
