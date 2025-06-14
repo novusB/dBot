@@ -82,7 +82,7 @@ class OSRSStats(commands.Cog):
             "King Black Dragon": 1, "Giant Mole": 1, "Obor": 1, "Bryophyta": 1
         }
 
-        # Exact XP table for all levels 1-99 and beyond
+        # Exact XP table for all levels 1-99
         self.xp_table = [
             0, 83, 174, 276, 388, 512, 650, 801, 969, 1154, 1358, 1584, 1833, 2107, 2411, 2746,
             3115, 3523, 3973, 4470, 5018, 5624, 6291, 7028, 7842, 8740, 9730, 10824, 12031, 13363,
@@ -94,13 +94,6 @@ class OSRSStats(commands.Cog):
             2673114, 2951373, 3258594, 3597792, 3972294, 4385776, 4842295, 5346332, 5902831,
             6517253, 7195629, 7944614, 8771558, 9684577, 10692629, 11805606, 13034431
         ]
-
-        # Virtual levels beyond 99 (for 200M XP calculations)
-        self.virtual_levels = {}
-        current_xp = 13034431
-        for level in range(100, 127):
-            current_xp = int(current_xp * 1.1)
-            self.virtual_levels[level] = current_xp
 
         # Milestone XP values
         self.xp_milestones = {
@@ -173,7 +166,6 @@ class OSRSStats(commands.Cog):
                     
                     # Calculate various metrics
                     xp_to_next = None
-                    virtual_level = level
                     percentage_to_next = 0
                     
                     if level < 99:
@@ -185,13 +177,6 @@ class OSRSStats(commands.Cog):
                                 xp_in_level = xp - current_level_xp
                                 xp_for_level = next_level_xp - current_level_xp
                                 percentage_to_next = (xp_in_level / xp_for_level) * 100
-                    else:
-                        # Calculate virtual level for 99+ skills
-                        for virt_level, virt_xp in self.virtual_levels.items():
-                            if xp >= virt_xp:
-                                virtual_level = virt_level + 1
-                            else:
-                                break
                     
                     # Determine next milestone
                     next_milestone = None
@@ -205,7 +190,6 @@ class OSRSStats(commands.Cog):
                         "level": level,
                         "xp": xp,
                         "xp_to_next": xp_to_next,
-                        "virtual_level": virtual_level,
                         "percentage_to_next": percentage_to_next,
                         "next_milestone": next_milestone,
                         "icon": self.skill_icons.get(self.skills[i], "📊")
@@ -525,8 +509,8 @@ class OSRSStats(commands.Cog):
         """
         Get detailed analysis of a specific OSRS skill with progress tracking and unlocks.
         
-        Shows comprehensive skill information including XP, level progress, virtual levels,
-        milestones, skill-specific unlocks, and training recommendations.
+        Shows comprehensive skill information including XP, level progress, milestones,
+        skill-specific unlocks, and training recommendations.
         
         Use quotes around usernames with spaces: .osrs skill "tcp syn ack" woodcutting
         
@@ -625,8 +609,7 @@ class OSRSStats(commands.Cog):
             name="📊 Current Stats",
             value=f"**Level:** {skill_data['level']}\n"
                   f"**Experience:** {self.format_number(skill_data['xp'])}\n"
-                  f"**Rank:** {self.format_number(skill_data['rank']) if skill_data['rank'] else 'Unranked'}\n"
-                  f"**Virtual Level:** {skill_data['virtual_level']}",
+                  f"**Rank:** {self.format_number(skill_data['rank']) if skill_data['rank'] else 'Unranked'}",
             inline=True
         )
         
@@ -672,7 +655,7 @@ class OSRSStats(commands.Cog):
                 inline=False
             )
         
-        embed.set_footer(text=f"Skill Category: {self.get_skill_category(skill)} • Virtual Level: {skill_data['virtual_level']}")
+        embed.set_footer(text=f"Skill Category: {self.get_skill_category(skill)}")
         return embed
 
     def get_skill_category(self, skill: str) -> str:
@@ -862,17 +845,16 @@ class OSRSStats(commands.Cog):
         
         Examples:
         .osrs goals "tcp syn ack" 99 woodcutting
-        .osrs goals "tcp syn ack" 90
+        .osrs goals "tcp syn ack" 90 overall
         .osrs goals Zezima 99 attack
         .osrs targets Zezima 85 slayer
-        .osrs goal Zezima 126 (virtual levels supported)
         
         Features:
-        • XP calculations for levels 1-126
+        • XP calculations for levels 1-99
         • Progress tracking and percentages
         • Time estimates for popular training methods
-        • Virtual level support (99+)
         • Milestone tracking (1M, 5M, 10M, etc.)
+        • Support for "overall" to calculate total level goals
         """
         # Parse arguments
         parts = []
@@ -898,7 +880,7 @@ class OSRSStats(commands.Cog):
             parts.append(current_part)
         
         if len(parts) < 2:
-            await ctx.send("❌ Please provide username and target level!\n\n**Usage:**\n`.osrs goals \"username with spaces\" 99 skill`\n`.osrs goals username_without_spaces 99 skill`")
+            await ctx.send("❌ Please provide username and target level!\n\n**Usage:**\n`.osrs goals \"username with spaces\" 99 skill`\n`.osrs goals username_without_spaces 99 skill`\n\n**Examples:**\n`.osrs goals \"tcp syn ack\" 90 overall`\n`.osrs goals Zezima 99 woodcutting`")
             return
         
         username = parts[0]
@@ -921,8 +903,8 @@ class OSRSStats(commands.Cog):
         }
         skill = skill_mapping.get(skill, skill)
         
-        if target_level < 1 or target_level > 126:
-            await ctx.send("❌ Target level must be between 1 and 126.")
+        if target_level < 1 or target_level > 99:
+            await ctx.send("❌ Target level must be between 1 and 99.")
             return
         
         async with ctx.typing():
@@ -943,20 +925,73 @@ class OSRSStats(commands.Cog):
                 await ctx.send(f"❌ Invalid skill: {skill}")
                 return
             
+            display_username = self.format_username_for_display(username)
+            
+            # Handle "Overall" skill differently - it's about total level, not XP
+            if skill == "Overall":
+                # Calculate current total level (excluding Overall skill itself)
+                current_total_level = sum(skill_data["level"] for skill_name, skill_data in stats["skills"].items() if skill_name != "Overall")
+                target_total_level = target_level * 23  # 23 skills (excluding Overall)
+                
+                if current_total_level >= target_total_level:
+                    await ctx.send(f"🎉 {display_username} has already achieved an average level of {target_level} (Total Level: {current_total_level})!")
+                    return
+                
+                levels_needed = target_total_level - current_total_level
+                
+                embed = discord.Embed(
+                    title=f"🎯 Goal Calculator: Average Level {target_level}",
+                    description=f"Total Level Analysis for {display_username}",
+                    color=0x00FF00
+                )
+                
+                embed.add_field(
+                    name="📊 Current Progress",
+                    value=f"**Current Total Level:** {current_total_level:,}\n"
+                          f"**Current Average Level:** {current_total_level/23:.1f}\n"
+                          f"**Target Average Level:** {target_level}\n"
+                          f"**Target Total Level:** {target_total_level:,}",
+                    inline=True
+                )
+                
+                embed.add_field(
+                    name="🎯 Requirements",
+                    value=f"**Levels Needed:** {levels_needed:,}\n"
+                          f"**Progress:** {(current_total_level/target_total_level)*100:.1f}%\n"
+                          f"**Skills at Target:** {len([s for s in stats['skills'].values() if s['level'] >= target_level and s != stats['skills']['Overall']])}/23",
+                    inline=True
+                )
+                
+                # Show skills that need work
+                skills_below_target = []
+                for skill_name, skill_data in stats["skills"].items():
+                    if skill_name != "Overall" and skill_data["level"] < target_level:
+                        skills_below_target.append(f"{skill_name} ({skill_data['level']})")
+                
+                if skills_below_target:
+                    skills_text = ", ".join(skills_below_target[:10])  # Show first 10
+                    if len(skills_below_target) > 10:
+                        skills_text += f" and {len(skills_below_target) - 10} more..."
+                    
+                    embed.add_field(
+                        name="📈 Skills Below Target",
+                        value=skills_text,
+                        inline=False
+                    )
+                
+                await ctx.send(embed=embed)
+                return
+            
+            # Handle individual skills
             current_level = stats["skills"][skill]["level"]
             current_xp = stats["skills"][skill]["xp"]
-            display_username = self.format_username_for_display(username)
             
             if current_level >= target_level:
                 await ctx.send(f"🎉 {display_username} has already achieved level {target_level} {skill}!")
                 return
             
             # Calculate target XP
-            if target_level <= 99:
-                target_xp = self.xp_table[target_level - 1]
-            else:
-                target_xp = self.virtual_levels.get(target_level, 200000000)
-            
+            target_xp = self.xp_table[target_level - 1]
             xp_needed = target_xp - current_xp
             
             embed = discord.Embed(
@@ -1085,7 +1120,7 @@ class OSRSStats(commands.Cog):
                   "Calculate XP and time estimates to reach target levels\n\n"
                   "**Examples:**\n"
                   "`.osrs goals \"tcp syn ack\" 99 woodcutting`\n"
-                  "`.osrs goals \"tcp syn ack\" 90` - Overall level\n"
+                  "`.osrs goals \"tcp syn ack\" 90 overall` - Average level goal\n"
                   "`.osrs targets Zezima 99 attack`\n"
                   "`.osrs goal Zezima 85 slayer`",
             inline=False
@@ -1138,7 +1173,8 @@ class OSRSStats(commands.Cog):
                   "• Account type is optional (defaults to normal)\n"
                   "• Skill abbreviations work in all skill commands\n"
                   "• Case doesn't matter for usernames or skills\n"
-                  "• All subcommands support multiple aliases",
+                  "• All subcommands support multiple aliases\n"
+                  "• Use `overall` for total level goals",
             inline=False
         )
         
@@ -1162,11 +1198,12 @@ class OSRSStats(commands.Cog):
                   "2. `.osrs skill \"your username\" attack` - Check a specific skill\n"
                   "3. `.osrs boss \"your username\"` - See your boss kills\n"
                   "4. `.osrs goals \"your username\" 99 woodcutting` - Set a goal\n"
-                  "5. `.osrs help` - View this help anytime",
+                  "5. `.osrs goals \"your username\" 90 overall` - Total level goal\n"
+                  "6. `.osrs help` - View this help anytime",
             inline=False
         )
         
-        embed.set_footer(text="💡 Pro Tip: All commands are now organized under .osrs - use subcommands for specific features!")
+        embed.set_footer(text="💡 Pro Tip: Use 'overall' in goals for total level targets (e.g., average level 90)!")
         
         await ctx.send(embed=embed)
 
