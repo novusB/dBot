@@ -828,52 +828,52 @@ class OSRSGE(commands.Cog):
                         matches.append((item_data['name'], item_data['id']))
                         if len(matches) >= 5:  # Limit to first 5 matches
                             break
-            
-            if matches:
-                await ctx.send(f"🔍 Found {len(matches)} partial matches:")
-                for name, item_id in matches[:3]:
-                    await ctx.send(f"  • {name} (ID: {item_id})")
                 
-                # Use the first match for testing
-                target_item = mapping[matches[0][0].lower()]
-                await ctx.send(f"✅ Using first match: {target_item['name']} (ID: {target_item['id']})")
-            else:
-                await ctx.send(f"❌ No matches found for '{search_term}'")
-                # Show some sample items
-                sample_items = list(mapping.keys())[:10]
-                await ctx.send(f"Sample items in mapping: {sample_items}")
-                return
-        
-        # Test prices
-        await ctx.send("📡 Testing latest prices API...")
-        prices = await self.get_latest_prices()
-        await ctx.send(f"✅ Prices loaded: {len(prices)} items")
-        
-        item_price = prices.get(str(target_item['id']))
-        if item_price:
-            await ctx.send(f"✅ Price data found: {item_price}")
+                if matches:
+                    await ctx.send(f"🔍 Found {len(matches)} partial matches:")
+                    for name, item_id in matches[:3]:
+                        await ctx.send(f"  • {name} (ID: {item_id})")
+                    
+                    # Use the first match for testing
+                    target_item = mapping[matches[0][0].lower()]
+                    await ctx.send(f"✅ Using first match: {target_item['name']} (ID: {target_item['id']})")
+                else:
+                    await ctx.send(f"❌ No matches found for '{search_term}'")
+                    # Show some sample items
+                    sample_items = list(mapping.keys())[:10]
+                    await ctx.send(f"Sample items in mapping: {sample_items}")
+                    return
             
-            # Test full data fetch
-            await ctx.send("📡 Testing full data fetch...")
-            full_data = await self.fetch_comprehensive_ge_data(item_name)
-            if full_data:
-                await ctx.send(f"✅ Full data processed successfully!")
-                await ctx.send(f"Current price: {self.format_number(full_data['current_price'])} gp")
-            else:
-                await ctx.send("❌ Failed to process full data")
-        else:
-            await ctx.send(f"❌ No price data for ID {target_item['id']}")
-            # Show some available IDs
-            available = list(prices.keys())[:10]
-            await ctx.send(f"Available price IDs: {available}")
+            # Test prices
+            await ctx.send("📡 Testing latest prices API...")
+            prices = await self.get_latest_prices()
+            await ctx.send(f"✅ Prices loaded: {len(prices)} items")
             
-    except Exception as e:
-        await ctx.send(f"❌ Error during test: {e}")
-        import traceback
-        await ctx.send(f"Traceback: {traceback.format_exc()}")
-    finally:
-        # Restore debug mode
-        self.debug_mode = old_debug
+            item_price = prices.get(str(target_item['id']))
+            if item_price:
+                await ctx.send(f"✅ Price data found: {item_price}")
+                
+                # Test full data fetch
+                await ctx.send("📡 Testing full data fetch...")
+                full_data = await self.fetch_comprehensive_ge_data(item_name)
+                if full_data:
+                    await ctx.send(f"✅ Full data processed successfully!")
+                    await ctx.send(f"Current price: {self.format_number(full_data['current_price'])} gp")
+                else:
+                    await ctx.send("❌ Failed to process full data")
+            else:
+                await ctx.send(f"❌ No price data for ID {target_item['id']}")
+                # Show some available IDs
+                available = list(prices.keys())[:10]
+                await ctx.send(f"Available price IDs: {available}")
+                
+        except Exception as e:
+            await ctx.send(f"❌ Error during test: {e}")
+            import traceback
+            await ctx.send(f"Traceback: {traceback.format_exc()}")
+        finally:
+            # Restore debug mode
+            self.debug_mode = old_debug
 
     @commands.command(name="gehistory", aliases=["gehist"])
     async def ge_history(self, ctx):
