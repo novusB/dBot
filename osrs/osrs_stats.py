@@ -14,7 +14,7 @@ class OSRSStats(commands.Cog):
     
     def __init__(self, bot: Red):
         self.bot = bot
-        self.config = Config.get_conf(self, identifier=7829463051, force_registration=True)
+        self.config = Config.get_conf(self, identifier=78294630513241, force_registration=True)
         self.session = aiohttp.ClientSession()
         self.version = "2.1.0"
         
