@@ -14,9 +14,9 @@ class OSRSStats(commands.Cog):
     
     def __init__(self, bot: Red):
         self.bot = bot
-        self.config = Config.get_conf(self, identifier=78294630513241, force_registration=True)
+        self.config = Config.get_conf(self, identifier=7829463051, force_registration=True)
         self.session = aiohttp.ClientSession()
-        self.version = "2.1.0"
+        self.version = "2.2.0"
         
         # Initialize default config for tracking
         default_global = {
@@ -104,16 +104,6 @@ class OSRSStats(commands.Cog):
         self.xp_milestones = {
             1000000: "1M", 5000000: "5M", 10000000: "10M", 
             25000000: "25M", 50000000: "50M", 100000000: "100M", 200000000: "200M"
-        }
-
-        # Quest requirements for popular content
-        self.quest_requirements = {
-            "Barrows": "Priest in Peril",
-            "Zulrah": "Regicide",
-            "Vorkath": "Dragon Slayer II",
-            "Theatre of Blood": "A Taste of Hope",
-            "Chambers of Xeric": "No quest requirement",
-            "The Gauntlet": "Song of the Elves"
         }
 
         print(f"OSRSStats cog initialized - Version {self.version}")
@@ -740,27 +730,7 @@ class OSRSStats(commands.Cog):
 
     @osrs_stats.command(name="boss", aliases=["bosses", "pvm"])
     async def osrs_boss(self, ctx, *, args: str):
-        """
-        Display all boss kill counts and PvM statistics for an OSRS player.
-        
-        Shows comprehensive PvM data including kill counts for all bosses, raids,
-        and high-level content. Sorted by kill count with total statistics.
-        
-        Use quotes around usernames with spaces: .osrs boss "tcp syn ack"
-        
-        Examples:
-        .osrs boss "tcp syn ack"
-        .osrs boss "tcp syn ack" ironman
-        .osrs boss Zezima
-        .osrs bosses Zezima hardcore
-        .osrs pvm Zezima ultimate
-        
-        Includes all PvM content:
-        • All boss kill counts
-        • Raid completions (CoX, ToB, ToA)
-        • Minigame scores
-        • Clue scroll completions
-        """
+        """Display all boss kill counts and PvM statistics for an OSRS player."""
         # Parse arguments
         parts = []
         current_part = ""
@@ -863,27 +833,7 @@ class OSRSStats(commands.Cog):
 
     @osrs_stats.command(name="goals", aliases=["goal", "targets", "target"])
     async def osrs_goals(self, ctx, *, args: str):
-        """
-        Calculate XP requirements and time estimates to reach target levels in OSRS.
-        
-        Provides detailed goal analysis including XP needed, progress percentage,
-        and realistic time estimates for different training methods.
-        
-        Use quotes around usernames with spaces: .osrs goals "tcp syn ack" 99 woodcutting
-        
-        Examples:
-        .osrs goals "tcp syn ack" 99 woodcutting
-        .osrs goals "tcp syn ack" 90 overall
-        .osrs goals Zezima 99 attack
-        .osrs targets Zezima 85 slayer
-        
-        Features:
-        • XP calculations for levels 1-99
-        • Progress tracking and percentages
-        • Time estimates for popular training methods
-        • Milestone tracking (1M, 5M, 10M, etc.)
-        • Support for "overall" to calculate total level goals
-        """
+        """Calculate XP requirements and time estimates to reach target levels in OSRS."""
         # Parse arguments
         parts = []
         current_part = ""
@@ -1084,124 +1034,124 @@ class OSRSStats(commands.Cog):
 
     
     
-async def fetch_ge_prices(self, item_name: str) -> Optional[dict]:
-    """Fetch Grand Exchange prices for an item using the OSRS API."""
-    try:
-        print(f"Searching for item: '{item_name}'")
-        
-        # Clean the search term
-        search_term = item_name.lower().strip()
-        first_letter = search_term[0] if search_term else 'a'
-        
-        # Search for the item
-        target_item = None
-        
-        # Try first letter search
-        search_url = f"https://secure.runescape.com/m=itemdb_oldschool/api/catalogue/items.json?category=1&alpha={first_letter}&page=1"
-        
-        async with self.session.get(search_url) as response:
-            if response.status == 200:
-                try:
-                    search_data = await response.json()
-                    items = search_data.get('items', [])
+    async def fetch_ge_prices(self, item_name: str) -> Optional[dict]:
+        """Fetch Grand Exchange prices for an item using the OSRS API."""
+        try:
+            print(f"Searching for item: '{item_name}'")
+            
+            # Clean the search term
+            search_term = item_name.lower().strip()
+            first_letter = search_term[0] if search_term else 'a'
+            
+            # Search for the item
+            target_item = None
+            
+            # Try first letter search
+            search_url = f"https://secure.runescape.com/m=itemdb_oldschool/api/catalogue/items.json?category=1&alpha={first_letter}&page=1"
+            
+            async with self.session.get(search_url) as response:
+                if response.status == 200:
+                    try:
+                        search_data = await response.json()
+                        items = search_data.get('items', [])
+                        
+                        # Look for exact or partial matches
+                        for item in items:
+                            item_name_lower = item['name'].lower()
+                            
+                            # Exact match
+                            if item_name_lower == search_term:
+                                target_item = item
+                                break
+                            
+                            # Partial match
+                            if search_term in item_name_lower:
+                                target_item = item
+                                break
                     
-                    # Look for exact or partial matches
-                    for item in items:
-                        item_name_lower = item['name'].lower()
+                    except Exception as e:
+                        print(f"Error parsing search results: {e}")
+            
+            if not target_item:
+                print(f"No item found matching '{item_name}'")
+                return None
+            
+            print(f"Found item: {target_item['name']} (ID: {target_item['id']})")
+            
+            # Get detailed price information
+            detail_url = f"https://secure.runescape.com/m=itemdb_oldschool/api/catalogue/detail.json?item={target_item['id']}"
+            
+            async with self.session.get(detail_url) as response:
+                if response.status == 200:
+                    try:
+                        detail_data = await response.json()
+                        item_detail = detail_data.get('item', {})
                         
-                        # Exact match
-                        if item_name_lower == search_term:
-                            target_item = item
-                            break
+                        # Parse current price
+                        current_price_str = item_detail.get('current', {}).get('price', '0')
+                        current_price = self.parse_price_string(current_price_str)
                         
-                        # Partial match
-                        if search_term in item_name_lower:
-                            target_item = item
-                            break
-                
-                except Exception as e:
-                    print(f"Error parsing search results: {e}")
-        
-        if not target_item:
-            print(f"No item found matching '{item_name}'")
+                        # Parse today's price for change calculation
+                        today_price_str = item_detail.get('today', {}).get('price', '0')
+                        today_price = self.parse_price_string(today_price_str)
+                        
+                        # Calculate price change
+                        price_change = None
+                        price_change_percent = None
+                        
+                        if current_price and today_price and today_price != 0:
+                            price_change = current_price - today_price
+                            price_change_percent = (price_change / today_price) * 100
+                        
+                        return {
+                            'id': target_item['id'],
+                            'name': item_detail.get('name', target_item['name']),
+                            'description': item_detail.get('description', ''),
+                            'current_price': current_price,
+                            'today_price': today_price,
+                            'price_change': price_change,
+                            'price_change_percent': price_change_percent,
+                            'icon': item_detail.get('icon', ''),
+                            'icon_large': item_detail.get('icon_large', ''),
+                            'type': item_detail.get('type', ''),
+                            'members': item_detail.get('members', 'true') == 'true',
+                            'day30_trend': item_detail.get('day30', {}).get('trend', 'neutral'),
+                            'day90_trend': item_detail.get('day90', {}).get('trend', 'neutral'),
+                            'day180_trend': item_detail.get('day180', {}).get('trend', 'neutral'),
+                            'day30_change': item_detail.get('day30', {}).get('change', 'N/A'),
+                            'day90_change': item_detail.get('day90', {}).get('change', 'N/A'),
+                            'day180_change': item_detail.get('day180', {}).get('change', 'N/A')
+                        }
+                    
+                    except Exception as e:
+                        print(f"Error parsing item details: {e}")
+                        return None
+                else:
+                    print(f"Failed to fetch item details, status: {response.status}")
+                    return None
+                    
+        except Exception as e:
+            print(f"Error in fetch_ge_prices: {e}")
+            return None
+
+    def parse_price_string(self, price_str) -> Optional[int]:
+        """Parse a price string from the OSRS API into an integer."""
+        if not price_str or price_str == 'N/A':
             return None
         
-        print(f"Found item: {target_item['name']} (ID: {target_item['id']})")
-        
-        # Get detailed price information
-        detail_url = f"https://secure.runescape.com/m=itemdb_oldschool/api/catalogue/detail.json?item={target_item['id']}"
-        
-        async with self.session.get(detail_url) as response:
-            if response.status == 200:
-                try:
-                    detail_data = await response.json()
-                    item_detail = detail_data.get('item', {})
-                    
-                    # Parse current price
-                    current_price_str = item_detail.get('current', {}).get('price', '0')
-                    current_price = self.parse_price_string(current_price_str)
-                    
-                    # Parse today's price for change calculation
-                    today_price_str = item_detail.get('today', {}).get('price', '0')
-                    today_price = self.parse_price_string(today_price_str)
-                    
-                    # Calculate price change
-                    price_change = None
-                    price_change_percent = None
-                    
-                    if current_price and today_price and today_price != 0:
-                        price_change = current_price - today_price
-                        price_change_percent = (price_change / today_price) * 100
-                    
-                    return {
-                        'id': target_item['id'],
-                        'name': item_detail.get('name', target_item['name']),
-                        'description': item_detail.get('description', ''),
-                        'current_price': current_price,
-                        'today_price': today_price,
-                        'price_change': price_change,
-                        'price_change_percent': price_change_percent,
-                        'icon': item_detail.get('icon', ''),
-                        'icon_large': item_detail.get('icon_large', ''),
-                        'type': item_detail.get('type', ''),
-                        'members': item_detail.get('members', 'true') == 'true',
-                        'day30_trend': item_detail.get('day30', {}).get('trend', 'neutral'),
-                        'day90_trend': item_detail.get('day90', {}).get('trend', 'neutral'),
-                        'day180_trend': item_detail.get('day180', {}).get('trend', 'neutral'),
-                        'day30_change': item_detail.get('day30', {}).get('change', 'N/A'),
-                        'day90_change': item_detail.get('day90', {}).get('change', 'N/A'),
-                        'day180_change': item_detail.get('day180', {}).get('change', 'N/A')
-                    }
-                    
-                except Exception as e:
-                    print(f"Error parsing item details: {e}")
-                    return None
+        try:
+            # Remove commas and convert to string
+            price_str = str(price_str).replace(',', '').strip()
+            
+            # Handle 'k' and 'm' suffixes
+            if price_str.endswith('k'):
+                return int(float(price_str[:-1]) * 1000)
+            elif price_str.endswith('m'):
+                return int(float(price_str[:-1]) * 1000000)
             else:
-                print(f"Failed to fetch item details, status: {response.status}")
-                return None
-                
-    except Exception as e:
-        print(f"Error in fetch_ge_prices: {e}")
-        return None
-
-def parse_price_string(self, price_str) -> Optional[int]:
-    """Parse a price string from the OSRS API into an integer."""
-    if not price_str or price_str == 'N/A':
-        return None
-    
-    try:
-        # Remove commas and convert to string
-        price_str = str(price_str).replace(',', '').strip()
-        
-        # Handle 'k' and 'm' suffixes
-        if price_str.endswith('k'):
-            return int(float(price_str[:-1]) * 1000)
-        elif price_str.endswith('m'):
-            return int(float(price_str[:-1]) * 1000000)
-        else:
-            return int(float(price_str))
-    except (ValueError, TypeError):
-        return None
+                return int(float(price_str))
+        except (ValueError, TypeError):
+            return None
 
     def get_price_emoji(self, trend: str, change_percent: float = None) -> str:
         """Get appropriate emoji for price trends."""
