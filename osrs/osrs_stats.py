@@ -1242,3 +1242,4 @@ class OSRSStats(commands.Cog):
                 return {
                     'id': item_id,
                     'name': item_detail.get('name', target_item['name']),
+                }
