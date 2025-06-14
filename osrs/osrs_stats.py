@@ -440,15 +440,7 @@ class OSRSStats(commands.Cog):
         
         Use .osrs help to see all available subcommands and usage examples.
         """
-        if ctx.invoked_subcommand is None:
-            await ctx.send("❌ Please specify a subcommand!\n\n**Available commands:**\n"
-                          "`.osrs stats` - Player statistics\n"
-                          "`.osrs skill` - Skill analysis\n"
-                          "`.osrs boss` - Boss kills\n"
-                          "`.osrs goals` - Goal calculator\n"
-                          "`.osrs ge` - Grand Exchange prices\n"
-                          "`.osrs help` - Complete help guide\n\n"
-                          "**Example:** `.osrs stats \"tcp syn ack\"`")
+        pass
 
     @osrs_stats.command(name="stats", aliases=["player", "lookup"])
     async def osrs_player_stats(self, ctx, *, args: str):
