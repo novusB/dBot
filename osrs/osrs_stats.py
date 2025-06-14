@@ -6,6 +6,9 @@ from typing import Optional, Dict, List, Tuple
 import asyncio
 import math
 from datetime import datetime, timedelta
+import json
+from datetime import datetime, timedelta
+import re
 
 class OSRSStats(commands.Cog):
     """Old School RuneScape player statistics and analysis tools. Supports usernames with spaces using quotes."""
@@ -1052,6 +1055,408 @@ class OSRSStats(commands.Cog):
         
         return xp_rates.get(skill, {})
 
+    async def fetch_ge_prices(self, item_name: str) -> Optional[dict]:
+        """Fetch Grand Exchange prices for an item using the OSRS API."""
+        try:
+            # First, search for the item ID using the item name
+            search_url = f"https://secure.runescape.com/m=itemdb_oldschool/api/catalogue/items.json?category=1&alpha={item_name[0].lower()}&page=1"
+            
+            async with self.session.get(search_url) as response:
+                if response.status != 200:
+                    return None
+                
+                search_data = await response.json()
+                
+                # Find the best matching item
+                best_match = None
+                exact_match = None
+                
+                for item in search_data.get('items', []):
+                    item_display_name = item['name'].lower()
+                    search_term = item_name.lower()
+                    
+                    # Check for exact match first
+                    if item_display_name == search_term:
+                        exact_match = item
+                        break
+                    
+                    # Check for partial matches
+                    if search_term in item_display_name or item_display_name in search_term:
+                        if not best_match or len(item_display_name) < len(best_match['name']):
+                            best_match = item
+                
+                target_item = exact_match or best_match
+                
+                if not target_item:
+                    return None
+                
+                # Now fetch the detailed price information
+                item_id = target_item['id']
+                detail_url = f"https://secure.runescape.com/m=itemdb_oldschool/api/catalogue/detail.json?item={item_id}"
+                
+                async with self.session.get(detail_url) as detail_response:
+                    if detail_response.status != 200:
+                        return None
+                    
+                    detail_data = await detail_response.json()
+                    item_detail = detail_data.get('item', {})
+                    
+                    # Parse price strings and convert to integers
+                    def parse_price(price_str):
+                        if not price_str or price_str == 'N/A':
+                            return None
+                        
+                        # Remove commas and handle 'k' and 'm' suffixes
+                        price_str = price_str.replace(',', '').strip()
+                        
+                        if price_str.endswith('k'):
+                            return int(float(price_str[:-1]) * 1000)
+                        elif price_str.endswith('m'):
+                            return int(float(price_str[:-1]) * 1000000)
+                        else:
+                            try:
+                                return int(price_str)
+                            except:
+                                return None
+                    
+                    current_price = parse_price(item_detail.get('current', {}).get('price', '0'))
+                    today_price = parse_price(item_detail.get('today', {}).get('price', '0'))
+                    
+                    # Calculate price change
+                    price_change = None
+                    price_change_percent = None
+                    
+                    if current_price and today_price and today_price != 0:
+                        price_change = current_price - today_price
+                        price_change_percent = (price_change / today_price) * 100
+                    
+                    return {
+                        'id': item_id,
+                        'name': item_detail.get('name', target_item['name']),
+                        'description': item_detail.get('description', ''),
+                        'current_price': current_price,
+                        'today_price': today_price,
+                        'price_change': price_change,
+                        'price_change_percent': price_change_percent,
+                        'icon': item_detail.get('icon', ''),
+                        'icon_large': item_detail.get('icon_large', ''),
+                        'type': item_detail.get('type', ''),
+                        'members': item_detail.get('members', 'true') == 'true',
+                        'day30_trend': item_detail.get('day30', {}).get('trend', 'neutral'),
+                        'day90_trend': item_detail.get('day90', {}).get('trend', 'neutral'),
+                        'day180_trend': item_detail.get('day180', {}).get('trend', 'neutral'),
+                        'day30_change': item_detail.get('day30', {}).get('change', 'N/A'),
+                        'day90_change': item_detail.get('day90', {}).get('change', 'N/A'),
+                        'day180_change': item_detail.get('day180', {}).get('change', 'N/A')
+                    }
+                    
+        except Exception as e:
+            print(f"Error fetching GE prices: {e}")
+            return None
+
+    def get_price_emoji(self, trend: str, change_percent: float = None) -> str:
+        """Get appropriate emoji for price trends."""
+        if change_percent is not None:
+            if change_percent > 5:
+                return "📈🔥"
+            elif change_percent > 0:
+                return "📈"
+            elif change_percent < -5:
+                return "📉💥"
+            elif change_percent < 0:
+                return "📉"
+            else:
+                return "➡️"
+        
+        trend_emojis = {
+            'positive': '📈',
+            'negative': '📉',
+            'neutral': '➡️'
+        }
+        return trend_emojis.get(trend.lower(), '➡️')
+
+    def get_popular_items(self) -> List[str]:
+        """Get a list of popular OSRS items for suggestions."""
+        return [
+            "Dragon scimitar", "Whip", "Dragon claws", "Bandos chestplate", "Armadyl crossbow",
+            "Twisted bow", "Scythe of vitur", "Tumeken's shadow", "Dragon hunter lance",
+            "Blowpipe", "Trident of the seas", "Occult necklace", "Berserker ring (i)",
+            "Dragon boots", "Barrows gloves", "Fire cape", "Infernal cape", "Ava's assembler",
+            "Shark", "Karambwan", "Prayer potion(4)", "Super combat potion(4)", "Ranging potion(4)",
+            "Magic logs", "Yew logs", "Dragon bones", "Big bones", "Rune ore", "Adamant ore",
+            "Nature rune", "Blood rune", "Death rune", "Chaos rune", "Cannonball",
+            "Dragon dart tip", "Rune arrow", "Adamant arrow", "Coal", "Iron ore",
+            "Lobster", "Monkfish", "Anglerfish", "Saradomin brew(4)", "Super restore(4)",
+            "Stamina potion(4)", "Divine super combat potion(4)", "Extended antifire(4)"
+        ]
+
+    def create_ge_embed(self, item_data: dict) -> discord.Embed:
+        """Create a detailed Grand Exchange embed for an item."""
+        name = item_data['name']
+        current_price = item_data['current_price']
+        price_change = item_data['price_change']
+        price_change_percent = item_data['price_change_percent']
+        
+        # Determine embed color based on price trend
+        if price_change_percent and price_change_percent > 0:
+            color = 0x00FF00  # Green for positive
+        elif price_change_percent and price_change_percent < 0:
+            color = 0xFF0000  # Red for negative
+        else:
+            color = 0xFFD700  # Gold for neutral
+        
+        embed = discord.Embed(
+            title=f"💰 Grand Exchange: {name}",
+            color=color,
+            url=f"https://oldschool.runescape.wiki/w/{name.replace(' ', '_')}"
+        )
+        
+        # Add item icon if available
+        if item_data.get('icon_large'):
+            embed.set_thumbnail(url=item_data['icon_large'])
+        
+        # Current price and daily change
+        price_emoji = self.get_price_emoji('', price_change_percent)
+        price_text = f"**Current Price:** {self.format_number(current_price)} gp\n"
+        
+        if price_change is not None:
+            change_sign = "+" if price_change >= 0 else ""
+            price_text += f"**Daily Change:** {change_sign}{self.format_number(price_change)} gp"
+            
+            if price_change_percent is not None:
+                price_text += f" ({change_sign}{price_change_percent:.1f}%)"
+        
+        price_text += f" {price_emoji}"
+        
+        embed.add_field(
+            name="💵 Price Information",
+            value=price_text,
+            inline=True
+        )
+        
+        # Item details
+        details_text = f"**Type:** {item_data.get('type', 'Unknown')}\n"
+        details_text += f"**Members:** {'Yes' if item_data.get('members') else 'No'}\n"
+        details_text += f"**Item ID:** {item_data['id']}"
+        
+        embed.add_field(
+            name="ℹ️ Item Details",
+            value=details_text,
+            inline=True
+        )
+        
+        # Long-term trends
+        trends_text = ""
+        trend_periods = [
+            ("30 Day", item_data['day30_trend'], item_data['day30_change']),
+            ("90 Day", item_data['day90_trend'], item_data['day90_change']),
+            ("180 Day", item_data['day180_trend'], item_data['day180_change'])
+        ]
+        
+        for period, trend, change in trend_periods:
+            trend_emoji = self.get_price_emoji(trend)
+            trends_text += f"**{period}:** {change} {trend_emoji}\n"
+        
+        embed.add_field(
+            name="📊 Long-term Trends",
+            value=trends_text,
+            inline=True
+        )
+        
+        # Item description
+        if item_data.get('description'):
+            description = item_data['description']
+            if len(description) > 200:
+                description = description[:200] + "..."
+            
+            embed.add_field(
+                name="📝 Description",
+                value=description,
+                inline=False
+            )
+        
+        # Popular price calculations
+        if current_price:
+            calculations_text = ""
+            quantities = [100, 1000, 10000]
+            
+            for qty in quantities:
+                if qty <= 10000 or current_price <= 1000:  # Avoid huge numbers for expensive items
+                    total_value = current_price * qty
+                    calculations_text += f"**{qty:,}x:** {self.format_number(total_value)} gp\n"
+        
+        if calculations_text:
+            embed.add_field(
+                name="🧮 Quick Calculations",
+                value=calculations_text,
+                inline=True
+            )
+        
+        # Investment insights for expensive items
+        if current_price and current_price > 1000000:  # 1M+ items
+            insights_text = ""
+            
+            if price_change_percent and abs(price_change_percent) > 2:
+                if price_change_percent > 5:
+                    insights_text += "🔥 **Hot Item:** Significant price increase!\n"
+                elif price_change_percent < -5:
+                    insights_text += "💥 **Market Crash:** Major price drop!\n"
+                elif price_change_percent > 2:
+                    insights_text += "📈 **Rising:** Good time to sell\n"
+                elif price_change_percent < -2:
+                    insights_text += "📉 **Falling:** Potential buying opportunity\n"
+            
+            if item_data['day30_trend'] == 'positive' and item_data['day90_trend'] == 'positive':
+                insights_text += "🚀 **Strong uptrend** across multiple timeframes\n"
+            elif item_data['day30_trend'] == 'negative' and item_data['day90_trend'] == 'negative':
+                insights_text += "⚠️ **Downward trend** across multiple timeframes\n"
+        
+        if insights_text:
+            embed.add_field(
+                name="💡 Market Insights",
+                value=insights_text,
+                inline=False
+            )
+    
+    embed.set_footer(text="💡 Prices update daily • Data from OSRS Grand Exchange API")
+    
+    return embed
+
+    @osrs_stats.command(name="ge", aliases=["grandexchange", "price", "prices"])
+    async def osrs_ge(self, ctx, *, item_name: str = None):
+        """
+        Look up Grand Exchange prices for OSRS items with detailed market analysis.
+        
+        Get current prices, daily changes, long-term trends, and market insights for any
+        tradeable item on the OSRS Grand Exchange. Perfect for merchanting and investment decisions.
+        
+        Use quotes for multi-word items: .osrs ge "dragon scimitar"
+        
+        Examples:
+        .osrs ge "dragon scimitar"
+        .osrs ge whip
+        .osrs ge "bandos chestplate"
+        .osrs price "twisted bow"
+        .osrs grandexchange shark
+        .osrs ge "prayer potion(4)"
+        
+        Features:
+        • Real-time Grand Exchange prices
+        • Daily price changes and percentages
+        • 30/90/180-day trend analysis
+        • Market insights for expensive items
+        • Quick quantity calculations
+        • Item details and descriptions
+        • Investment recommendations
+        """
+        if not item_name:
+            # Show popular items and usage examples
+            popular_items = self.get_popular_items()
+            
+            embed = discord.Embed(
+                title="💰 Grand Exchange Price Lookup",
+                description="Look up current prices for any OSRS item!",
+                color=0xFFD700
+            )
+            
+            embed.add_field(
+                name="📝 Usage",
+                value="**`.osrs ge \"item name\"`**\n"
+                      "**Aliases:** `.osrs price`, `.osrs grandexchange`\n\n"
+                      "**Examples:**\n"
+                      "`.osrs ge \"dragon scimitar\"`\n"
+                      "`.osrs price whip`\n"
+                      "`.osrs ge \"bandos chestplate\"`",
+                inline=False
+            )
+            
+            # Show some popular items as examples
+            popular_text = ""
+            for i, item in enumerate(popular_items[:15]):  # Show first 15
+                popular_text += f"• {item}\n"
+            
+            embed.add_field(
+                name="🔥 Popular Items",
+                value=popular_text,
+                inline=True
+            )
+            
+            # Show categories
+            categories_text = (
+                "**⚔️ Weapons:** Dragon scimitar, Whip, Twisted bow\n"
+                "**🛡️ Armor:** Bandos chestplate, Armadyl helmet\n"
+                "**💍 Accessories:** Berserker ring, Amulet of fury\n"
+                "**🍖 Food:** Shark, Karambwan, Anglerfish\n"
+                "**🧪 Potions:** Prayer potion(4), Super combat\n"
+                "**📦 Resources:** Logs, Ores, Runes, Bones\n"
+                "**🏹 Ammo:** Rune arrow, Dragon dart tip"
+            )
+            
+            embed.add_field(
+                name="📂 Item Categories",
+                value=categories_text,
+                inline=True
+            )
+            
+            embed.add_field(
+                name="💡 Pro Tips",
+                value="• Use quotes for multi-word items\n"
+                      "• Include potion doses: `(4)`, `(3)`, etc.\n"
+                      "• Check market trends before big purchases\n"
+                      "• Use daily changes for flip opportunities\n"
+                      "• Monitor expensive items for investment timing",
+                inline=False
+            )
+            
+            embed.set_footer(text="💰 Start typing .osrs ge \"item name\" to get started!")
+            
+            await ctx.send(embed=embed)
+            return
+        
+        async with ctx.typing():
+            item_data = await self.fetch_ge_prices(item_name)
+            
+            if item_data is None:
+                # Create a helpful error message with suggestions
+                embed = discord.Embed(
+                    title="❌ Item Not Found",
+                    description=f"Could not find Grand Exchange data for '{item_name}'",
+                    color=0xFF0000
+                )
+                
+                embed.add_field(
+                    name="💡 Suggestions",
+                    value="• Check your spelling\n"
+                          "• Use full item names: `dragon scimitar` not `d scim`\n"
+                          "• Include item variations: `(4)` for potions\n"
+                          "• Try using quotes: `.osrs ge \"item name\"`\n"
+                          "• Some items may not be tradeable",
+                    inline=False
+                )
+                
+                # Suggest similar items
+                popular_items = self.get_popular_items()
+                search_term = item_name.lower()
+                suggestions = []
+                
+                for item in popular_items:
+                    if any(word in item.lower() for word in search_term.split()):
+                        suggestions.append(item)
+                
+                if suggestions:
+                    suggestion_text = "\n".join(f"• {item}" for item in suggestions[:5])
+                    embed.add_field(
+                        name="🔍 Did you mean?",
+                        value=suggestion_text,
+                        inline=False
+                    )
+                
+                await ctx.send(embed=embed)
+                return
+            
+            embed = self.create_ge_embed(item_data)
+            await ctx.send(embed=embed)
+
     @osrs_stats.command(name="help", aliases=["commands", "info"])
     async def osrs_help(self, ctx):
         """
@@ -1127,6 +1532,19 @@ class OSRSStats(commands.Cog):
         )
         
         embed.add_field(
+            name="💰 Grand Exchange Subcommand",
+            value="**`.osrs ge \"item_name\"`**\n"
+                  "**Aliases:** `.osrs price`, `.osrs grandexchange`\n"
+                  "Look up current Grand Exchange prices with market analysis\n\n"
+                  "**Examples:**\n"
+                  "`.osrs ge \"dragon scimitar\"`\n"
+                  "`.osrs price whip`\n"
+                  "`.osrs ge \"bandos chestplate\"`\n"
+                  "`.osrs grandexchange \"prayer potion(4)\"`",
+            inline=False
+        )
+        
+        embed.add_field(
             name="ℹ️ Help Subcommand",
             value="**`.osrs help`**\n"
                   "**Aliases:** `.osrs commands`, `.osrs info`\n"
@@ -1198,7 +1616,7 @@ class OSRSStats(commands.Cog):
                   "2. `.osrs skill \"your username\" attack` - Check a specific skill\n"
                   "3. `.osrs boss \"your username\"` - See your boss kills\n"
                   "4. `.osrs goals \"your username\" 99 woodcutting` - Set a goal\n"
-                  "5. `.osrs goals \"your username\" 90 overall` - Total level goal\n"
+                  "5. `.osrs ge \"dragon scimitar\"` - Check item prices\n"
                   "6. `.osrs help` - View this help anytime",
             inline=False
         )
