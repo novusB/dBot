@@ -6,25 +6,19 @@ from typing import Optional, List, Dict, Any
 import asyncio
 import json
 from datetime import datetime, timedelta
-import hashlib
 
 class OSRSGE(commands.Cog):
-    """Old School RuneScape Grand Exchange price lookup tool with intelligent caching."""
+    """Old School RuneScape Grand Exchange price lookup tool."""
     
     def __init__(self, bot: Red):
         self.bot = bot
         self.config = Config.get_conf(self, identifier=7829463052, force_registration=True)
         self.session = aiohttp.ClientSession()
-        self.version = "1.2.0"
+        self.version = "1.3.0"
         
         # Initialize default config
         default_global = {
-            "version": self.version,
-            "cache_duration_seconds": 300,  # 5 minutes default
-            "mapping_cache_duration": 3600,  # 1 hour for item mapping
-            "api_calls_saved": 0,
-            "total_requests": 0,
-            "cache_hits": 0
+            "version": self.version
         }
         default_user = {
             "favorite_items": [],
@@ -33,168 +27,122 @@ class OSRSGE(commands.Cog):
         self.config.register_global(**default_global)
         self.config.register_user(**default_user)
         
-        # In-memory caches
-        self.item_mapping_cache = {}
-        self.mapping_cache_timestamp = None
-        
-        # Price data cache - stores by item_id
-        self.price_cache = {}
-        self.price_cache_timestamps = {}
-        
-        # Latest prices cache (shared across all items)
-        self.latest_prices_cache = None
-        self.latest_prices_timestamp = None
-        
-        # History cache by item_id and timeframe
-        self.history_cache = {}
-        self.history_cache_timestamps = {}
-        
-        print(f"OSRS GE cog initialized with caching - Version {self.version}")
+        print(f"OSRS GE cog initialized - Version {self.version}")
 
     async def cog_load(self):
         """Called when the cog is loaded."""
         await self.config.version.set(self.version)
-        print(f"OSRS GE cog loaded with intelligent caching - Version {self.version}")
+        print(f"OSRS GE cog loaded - Version {self.version}")
 
     def cog_unload(self):
         """Called when the cog is unloaded."""
         asyncio.create_task(self.session.close())
         print(f"OSRS GE cog unloaded - Version {self.version}")
 
-    async def increment_counter(self, counter_name: str):
-        """Increment a statistics counter."""
-        try:
-            current = await self.config.get_raw(counter_name, default=0)
-            await self.config.set_raw(counter_name, value=current + 1)
-        except:
-            pass  # Don't fail if we can't update stats
+    def format_number(self, num: int) -> str:
+        """Format large numbers with appropriate suffixes."""
+        if num is None:
+            return "N/A"
+        if num >= 1000000000:
+            return f"{num/1000000000:.1f}B"
+        elif num >= 1000000:
+            return f"{num/1000000:.1f}M"
+        elif num >= 1000:
+            return f"{num/1000:.1f}K"
+        else:
+            return f"{num:,}"
 
-    def is_cache_valid(self, timestamp: Optional[datetime], duration_seconds: int) -> bool:
-        """Check if a cache entry is still valid."""
+    def format_timestamp(self, timestamp: int) -> str:
+        """Format Unix timestamp to readable time."""
         if not timestamp:
-            return False
-        
-        age = (datetime.now() - timestamp).total_seconds()
-        return age < duration_seconds
-
-    def get_cache_key(self, item_id: int, timeframe: str = None) -> str:
-        """Generate a cache key for an item and timeframe."""
-        if timeframe:
-            return f"{item_id}_{timeframe}"
-        return str(item_id)
-
-    async def get_item_mapping_cached(self) -> Dict[str, Any]:
-        """Get item mapping with intelligent caching."""
-        cache_duration = await self.config.mapping_cache_duration()
-        
-        # Check if cache is still valid
-        if (self.item_mapping_cache and 
-            self.is_cache_valid(self.mapping_cache_timestamp, cache_duration)):
-            await self.increment_counter("cache_hits")
-            print("Using cached item mapping")
-            return self.item_mapping_cache
-        
+            return "Unknown"
         try:
-            print("Fetching fresh item mapping from API")
+            dt = datetime.fromtimestamp(timestamp)
+            now = datetime.now()
+            diff = now - dt
+            
+            if diff.days > 0:
+                return f"{diff.days} day{'s' if diff.days != 1 else ''} ago"
+            elif diff.seconds > 3600:
+                hours = diff.seconds // 3600
+                return f"{hours} hour{'s' if hours != 1 else ''} ago"
+            elif diff.seconds > 60:
+                minutes = diff.seconds // 60
+                return f"{minutes} minute{'s' if minutes != 1 else ''} ago"
+            else:
+                return "Just now"
+        except:
+            return "Unknown"
+
+    async def get_item_mapping(self) -> Dict[str, Any]:
+        """Get item mapping from OSRS Wiki API."""
+        try:
+            print("Fetching item mapping from API")
             mapping_url = "https://prices.runescape.wiki/api/v1/osrs/mapping"
             
             async with self.session.get(mapping_url) as response:
                 if response.status == 200:
                     mapping_data = await response.json()
                     
-                    # Convert to dict for faster lookups and cache it
-                    self.item_mapping_cache = {item['name'].lower(): item for item in mapping_data}
-                    self.mapping_cache_timestamp = datetime.now()
-                    
-                    print(f"Cached {len(self.item_mapping_cache)} items in mapping")
-                    return self.item_mapping_cache
+                    # Convert to dict for faster lookups
+                    item_mapping = {item['name'].lower(): item for item in mapping_data}
+                    print(f"Loaded {len(item_mapping)} items in mapping")
+                    return item_mapping
                 else:
                     print(f"Failed to fetch item mapping, status: {response.status}")
-                    # Return old cache if available
-                    return self.item_mapping_cache if self.item_mapping_cache else {}
+                    return {}
         except Exception as e:
             print(f"Error fetching item mapping: {e}")
-            # Return old cache if available
-            return self.item_mapping_cache if self.item_mapping_cache else {}
+            return {}
 
-    async def get_latest_prices_cached(self) -> Dict[str, Any]:
-        """Get latest prices for all items with caching."""
-        cache_duration = await self.config.cache_duration_seconds()
-        
-        # Check if cache is still valid
-        if (self.latest_prices_cache and 
-            self.is_cache_valid(self.latest_prices_timestamp, cache_duration)):
-            await self.increment_counter("cache_hits")
-            print("Using cached latest prices")
-            return self.latest_prices_cache
-        
+    async def get_latest_prices(self) -> Dict[str, Any]:
+        """Get latest prices for all items."""
         try:
-            print("Fetching fresh latest prices from API")
+            print("Fetching latest prices from API")
             prices_url = "https://prices.runescape.wiki/api/v1/osrs/latest"
             
             async with self.session.get(prices_url) as response:
                 if response.status == 200:
                     prices_data = await response.json()
-                    
-                    # Cache the entire latest prices response
-                    self.latest_prices_cache = prices_data.get('data', {})
-                    self.latest_prices_timestamp = datetime.now()
-                    
-                    print(f"Cached latest prices for {len(self.latest_prices_cache)} items")
-                    return self.latest_prices_cache
+                    latest_prices = prices_data.get('data', {})
+                    print(f"Loaded latest prices for {len(latest_prices)} items")
+                    return latest_prices
                 else:
                     print(f"Failed to fetch latest prices, status: {response.status}")
-                    return self.latest_prices_cache if self.latest_prices_cache else {}
+                    return {}
         except Exception as e:
             print(f"Error fetching latest prices: {e}")
-            return self.latest_prices_cache if self.latest_prices_cache else {}
+            return {}
 
-    async def get_price_history_cached(self, item_id: int, timeframe: str) -> List[Dict[str, Any]]:
-        """Get price history for an item with caching."""
-        cache_key = self.get_cache_key(item_id, timeframe)
-        cache_duration = await self.config.cache_duration_seconds()
-        
-        # Check if cache is still valid
-        if (cache_key in self.history_cache and 
-            cache_key in self.history_cache_timestamps and
-            self.is_cache_valid(self.history_cache_timestamps[cache_key], cache_duration)):
-            await self.increment_counter("cache_hits")
-            print(f"Using cached {timeframe} history for item {item_id}")
-            return self.history_cache[cache_key]
-        
+    async def get_price_history(self, item_id: int, timeframe: str) -> List[Dict[str, Any]]:
+        """Get price history for an item."""
         try:
-            print(f"Fetching fresh {timeframe} history for item {item_id}")
+            print(f"Fetching {timeframe} history for item {item_id}")
             history_url = f"https://prices.runescape.wiki/api/v1/osrs/{timeframe}?id={item_id}"
             
             async with self.session.get(history_url) as response:
                 if response.status == 200:
                     history_data = await response.json()
                     data_points = history_data.get('data', [])
-                    
-                    # Cache the history data
-                    self.history_cache[cache_key] = data_points
-                    self.history_cache_timestamps[cache_key] = datetime.now()
-                    
-                    print(f"Cached {len(data_points)} data points for {timeframe} history")
+                    print(f"Loaded {len(data_points)} data points for {timeframe} history")
                     return data_points
                 else:
                     print(f"Failed to fetch {timeframe} history, status: {response.status}")
-                    return self.history_cache.get(cache_key, [])
+                    return []
         except Exception as e:
             print(f"Error fetching {timeframe} history: {e}")
-            return self.history_cache.get(cache_key, [])
+            return []
 
-    async def fetch_comprehensive_ge_data_cached(self, item_name: str) -> Optional[Dict[str, Any]]:
-        """Fetch comprehensive Grand Exchange data with intelligent caching."""
+    async def fetch_comprehensive_ge_data(self, item_name: str) -> Optional[Dict[str, Any]]:
+        """Fetch comprehensive Grand Exchange data."""
         try:
-            await self.increment_counter("total_requests")
             print(f"Processing request for item: '{item_name}'")
             
             # Clean the search term
             search_term = item_name.lower().strip()
             
-            # Get item mapping (cached)
-            item_mapping = await self.get_item_mapping_cached()
+            # Get item mapping
+            item_mapping = await self.get_item_mapping()
             if not item_mapping:
                 return None
             
@@ -239,22 +187,8 @@ class OSRSGE(commands.Cog):
             item_name_found = target_item['name']
             print(f"Found item: {item_name_found} (ID: {item_id})")
             
-            # Check if we have a complete cached entry for this item
-            cache_key = self.get_cache_key(item_id)
-            cache_duration = await self.config.cache_duration_seconds()
-            
-            if (cache_key in self.price_cache and 
-                cache_key in self.price_cache_timestamps and
-                self.is_cache_valid(self.price_cache_timestamps[cache_key], cache_duration)):
-                await self.increment_counter("cache_hits")
-                print(f"Using complete cached data for {item_name_found}")
-                return self.price_cache[cache_key]
-            
-            # Fetch all data with caching
-            print(f"Building fresh comprehensive data for {item_name_found}")
-            
-            # Get latest prices (cached)
-            latest_prices_data = await self.get_latest_prices_cached()
+            # Get latest prices
+            latest_prices_data = await self.get_latest_prices()
             item_latest_prices = latest_prices_data.get(str(item_id))
             print(f"Latest prices for item {item_id}: {item_latest_prices}")
             
@@ -262,12 +196,12 @@ class OSRSGE(commands.Cog):
                 print(f"No price data found for item ID {item_id}")
                 return None
             
-            # Fetch history data for all timeframes (cached)
+            # Fetch history data for all timeframes
             timeframes = ['5m', '1h', '6h', '24h']
             history_data = {}
             
             for timeframe in timeframes:
-                history_data[f'price_history_{timeframe}'] = await self.get_price_history_cached(item_id, timeframe)
+                history_data[f'price_history_{timeframe}'] = await self.get_price_history(item_id, timeframe)
             
             # Compile comprehensive data
             comprehensive_data = {
@@ -279,54 +213,11 @@ class OSRSGE(commands.Cog):
             # Process and analyze all the data
             processed_data = self.process_comprehensive_data(comprehensive_data)
             
-            if processed_data:
-                # Cache the complete processed data
-                self.price_cache[cache_key] = processed_data
-                self.price_cache_timestamps[cache_key] = datetime.now()
-                print(f"Cached complete data for {item_name_found}")
-                
-                await self.increment_counter("api_calls_saved")
-            
             return processed_data
             
         except Exception as e:
-            print(f"Error in fetch_comprehensive_ge_data_cached: {e}")
+            print(f"Error in fetch_comprehensive_ge_data: {e}")
             return None
-
-    def format_number(self, num: int) -> str:
-        """Format large numbers with appropriate suffixes."""
-        if num is None:
-            return "N/A"
-        if num >= 1000000000:
-            return f"{num/1000000000:.1f}B"
-        elif num >= 1000000:
-            return f"{num/1000000:.1f}M"
-        elif num >= 1000:
-            return f"{num/1000:.1f}K"
-        else:
-            return f"{num:,}"
-
-    def format_timestamp(self, timestamp: int) -> str:
-        """Format Unix timestamp to readable time."""
-        if not timestamp:
-            return "Unknown"
-        try:
-            dt = datetime.fromtimestamp(timestamp)
-            now = datetime.now()
-            diff = now - dt
-            
-            if diff.days > 0:
-                return f"{diff.days} day{'s' if diff.days != 1 else ''} ago"
-            elif diff.seconds > 3600:
-                hours = diff.seconds // 3600
-                return f"{hours} hour{'s' if hours != 1 else ''} ago"
-            elif diff.seconds > 60:
-                minutes = diff.seconds // 60
-                return f"{minutes} minute{'s' if minutes != 1 else ''} ago"
-            else:
-                return "Just now"
-        except:
-            return "Unknown"
 
     def process_comprehensive_data(self, raw_data: Dict[str, Any]) -> Dict[str, Any]:
         """Process and analyze all the fetched data."""
@@ -399,11 +290,7 @@ class OSRSGE(commands.Cog):
             'market_activity': market_activity,
             
             # Trading metrics
-            'trading_metrics': trading_metrics,
-            
-            # Cache metadata
-            'cached_at': datetime.now().isoformat(),
-            'cache_version': self.version
+            'trading_metrics': trading_metrics
         }
         
         return processed_data
@@ -808,24 +695,31 @@ class OSRSGE(commands.Cog):
                     inline=True
                 )
         
-        # Add cache indicator
-        cache_indicator = "🟢 Cached" if item_data.get('cached_at') else "🔴 Live"
-        embed.set_footer(text=f"💡 Real-time data from OSRS Wiki • {cache_indicator} • v{self.version}")
+        embed.set_footer(text=f"💡 Real-time data from OSRS Wiki • v{self.version}")
         
         return embed
 
     @commands.command(name="ge", aliases=["grandexchange", "price", "osrsge"])
     async def grand_exchange(self, ctx, *, item_name: str):
         """
-        Fetch comprehensive Grand Exchange data for any OSRS item with intelligent caching.
+        Fetch comprehensive Grand Exchange data for any OSRS item.
         
-        Features intelligent caching to reduce API calls and improve response times.
-        Cache duration: 5 minutes for price data, 1 hour for item mapping.
+        Provides detailed item information including current prices, price trends,
+        market activity, trading metrics, volume statistics, and much more.
         
         Examples:
         .ge whip
         .grandexchange "dragon scimitar"
         .price "twisted bow"
+        
+        Features:
+        • Real-time Grand Exchange prices from multiple timeframes
+        • Comprehensive price trend analysis (5m, 1h, 6h, 24h)
+        • Market activity and liquidity indicators
+        • Advanced trading metrics and profit calculations
+        • Volume statistics and trading patterns
+        • Item examine text and complete item details
+        • Alch profit calculations and margin analysis
         """
         # Handle quoted item names properly
         if item_name.startswith('"') and item_name.endswith('"'):
@@ -835,7 +729,7 @@ class OSRSGE(commands.Cog):
         
         async with ctx.typing():
             print(f"Debug: Searching for item '{item_name}' (cleaned: '{item_name.lower().strip()}')")
-            item_data = await self.fetch_comprehensive_ge_data_cached(item_name)
+            item_data = await self.fetch_comprehensive_ge_data(item_name)
             
             if item_data:
                 embed = self.create_comprehensive_embed(item_data)
@@ -872,118 +766,45 @@ class OSRSGE(commands.Cog):
                 embed.set_footer(text=f"v{self.version}")
                 await ctx.send(embed=embed)
 
-    @commands.command(name="gecache", aliases=["gestats"])
-    @commands.is_owner()
-    async def ge_cache_stats(self, ctx):
-        """View cache statistics and performance metrics."""
+    @commands.command(name="gehistory", aliases=["gehist"])
+    async def ge_history(self, ctx):
+        """View your recent Grand Exchange search history."""
         try:
-            total_requests = await self.config.total_requests()
-            cache_hits = await self.config.cache_hits()
-            api_calls_saved = await self.config.api_calls_saved()
-            cache_duration = await self.config.cache_duration_seconds()
-            mapping_cache_duration = await self.config.mapping_cache_duration()
+            history = await self.config.user(ctx.author).search_history()
             
-            # Calculate cache hit rate
-            hit_rate = (cache_hits / total_requests * 100) if total_requests > 0 else 0
+            if not history:
+                embed = discord.Embed(
+                    title="📜 GE Search History",
+                    description="You haven't searched for any items yet!",
+                    color=0x8B4513
+                )
+                await ctx.send(embed=embed)
+                return
             
             embed = discord.Embed(
-                title="📊 GE Cache Statistics",
-                color=0x00FF00
+                title="📜 Your Recent GE Searches",
+                color=0x8B4513
             )
+            
+            history_text = ""
+            for i, search in enumerate(reversed(history[-10:]), 1):
+                timestamp = datetime.fromisoformat(search['timestamp'])
+                time_ago = self.format_timestamp(timestamp.timestamp())
+                price = self.format_number(search['price'])
+                
+                history_text += f"**{i}.** {search['item']} - {price} gp ({time_ago})\n"
             
             embed.add_field(
-                name="📈 Performance",
-                value=f"**Total Requests:** {total_requests:,}\n"
-                      f"**Cache Hits:** {cache_hits:,}\n"
-                      f"**Hit Rate:** {hit_rate:.1f}%\n"
-                      f"**API Calls Saved:** {api_calls_saved:,}",
-                inline=True
+                name="Recent Searches",
+                value=history_text,
+                inline=False
             )
             
-            embed.add_field(
-                name="⚙️ Configuration",
-                value=f"**Price Cache:** {cache_duration}s\n"
-                      f"**Mapping Cache:** {mapping_cache_duration}s\n"
-                      f"**Items in Mapping:** {len(self.item_mapping_cache):,}\n"
-                      f"**Cached Prices:** {len(self.price_cache):,}",
-                inline=True
-            )
-            
-            # Cache status
-            mapping_status = "🟢 Valid" if self.is_cache_valid(self.mapping_cache_timestamp, mapping_cache_duration) else "🔴 Expired"
-            latest_prices_status = "🟢 Valid" if self.is_cache_valid(self.latest_prices_timestamp, cache_duration) else "🔴 Expired"
-            
-            embed.add_field(
-                name="🔄 Cache Status",
-                value=f"**Item Mapping:** {mapping_status}\n"
-                      f"**Latest Prices:** {latest_prices_status}\n"
-                      f"**History Entries:** {len(self.history_cache):,}",
-                inline=True
-            )
-            
-            embed.set_footer(text=f"Cache system v{self.version}")
+            embed.set_footer(text=f"Use .ge <item> to search for prices • v{self.version}")
             await ctx.send(embed=embed)
             
         except Exception as e:
-            await ctx.send(f"❌ Error retrieving cache stats: {e}")
-
-    @commands.command(name="geclear", aliases=["geclearcache"])
-    @commands.is_owner()
-    async def clear_cache(self, ctx):
-        """Clear all cached data and force fresh API calls."""
-        # Clear all caches
-        self.item_mapping_cache = {}
-        self.mapping_cache_timestamp = None
-        self.price_cache = {}
-        self.price_cache_timestamps = {}
-        self.latest_prices_cache = None
-        self.latest_prices_timestamp = None
-        self.history_cache = {}
-        self.history_cache_timestamps = {}
-        
-        await ctx.send("✅ All caches cleared! Next requests will fetch fresh data from the API.")
-
-    @commands.command(name="geconfig")
-    @commands.is_owner()
-    async def ge_config(self, ctx, setting: str = None, value: int = None):
-        """Configure cache settings. Available: cache_duration_seconds, mapping_cache_duration"""
-        if not setting:
-            cache_duration = await self.config.cache_duration_seconds()
-            mapping_duration = await self.config.mapping_cache_duration()
-            
-            embed = discord.Embed(
-                title="⚙️ GE Configuration",
-                color=0x8B4513
-            )
-            embed.add_field(
-                name="Current Settings",
-                value=f"**Price Cache Duration:** {cache_duration}s ({cache_duration//60}m)\n"
-                      f"**Mapping Cache Duration:** {mapping_duration}s ({mapping_duration//60}m)",
-                inline=False
-            )
-            embed.add_field(
-                name="Usage",
-                value="`.geconfig cache_duration_seconds 300`\n"
-                      "`.geconfig mapping_cache_duration 3600`",
-                inline=False
-            )
-            await ctx.send(embed=embed)
-            return
-        
-        if setting not in ["cache_duration_seconds", "mapping_cache_duration"]:
-            await ctx.send("❌ Invalid setting. Use: `cache_duration_seconds` or `mapping_cache_duration`")
-            return
-        
-        if value is None:
-            await ctx.send("❌ Please provide a value in seconds.")
-            return
-        
-        if value < 60 or value > 86400:  # 1 minute to 24 hours
-            await ctx.send("❌ Value must be between 60 and 86400 seconds (1 minute to 24 hours).")
-            return
-        
-        await self.config.set_raw(setting, value=value)
-        await ctx.send(f"✅ Set `{setting}` to {value} seconds ({value//60} minutes).")
+            await ctx.send("❌ Error retrieving search history.")
 
 async def setup(bot: Red):
     await bot.add_cog(OSRSGE(bot))
