@@ -2,6 +2,7 @@ import aiohttp
 import discord
 from redbot.core import commands, Config
 from redbot.core.bot import Red
+from redbot.core.utils.chat_formatting import box, pagify
 from typing import Optional, List, Dict, Any
 import asyncio
 import json
@@ -18,10 +19,12 @@ class OSRSGE(commands.Cog):
         self.config = Config.get_conf(self, identifier=7829463052, force_registration=True)
         self.session = aiohttp.ClientSession()
         self.version = "1.3.0"
+        self.debug_mode = False
         
         # Initialize default config
         default_global = {
-            "version": self.version
+            "version": self.version,
+            "debug_mode": False
         }
         default_user = {
             "favorite_items": [],
@@ -29,18 +32,15 @@ class OSRSGE(commands.Cog):
         }
         self.config.register_global(**default_global)
         self.config.register_user(**default_user)
-        
-        log.info(f"OSRS GE cog initialized - Version {self.version}")
 
     async def cog_load(self):
         """Called when the cog is loaded."""
         await self.config.version.set(self.version)
-        log.info(f"OSRS GE cog loaded - Version {self.version}")
+        self.debug_mode = await self.config.debug_mode()
 
     def cog_unload(self):
         """Called when the cog is unloaded."""
         asyncio.create_task(self.session.close())
-        log.info(f"OSRS GE cog unloaded - Version {self.version}")
 
     def format_number(self, num: int) -> str:
         """Format large numbers with appropriate suffixes."""
@@ -77,10 +77,15 @@ class OSRSGE(commands.Cog):
         except:
             return "Unknown"
 
+    async def debug_log(self, message: str):
+        """Log debug messages if debug mode is enabled."""
+        if self.debug_mode:
+            log.info(f"[DEBUG] {message}")
+
     async def get_item_mapping(self) -> Dict[str, Any]:
         """Get item mapping from OSRS Wiki API."""
         try:
-            log.info("Fetching item mapping from API")
+            await self.debug_log("Fetching item mapping from API")
             mapping_url = "https://prices.runescape.wiki/api/v1/osrs/mapping"
             
             async with self.session.get(mapping_url) as response:
@@ -89,62 +94,58 @@ class OSRSGE(commands.Cog):
                     
                     # Convert to dict for faster lookups
                     item_mapping = {item['name'].lower(): item for item in mapping_data}
-                    log.info(f"Loaded {len(item_mapping)} items in mapping")
-                    
-                    # Debug: Show some sample items from mapping
-                    sample_items = list(item_mapping.items())[:5]
-                    log.debug(f"Sample mapping items: {sample_items}")
+                    await self.debug_log(f"Loaded {len(item_mapping)} items in mapping")
                     
                     return item_mapping
                 else:
-                    log.error(f"Failed to fetch item mapping, status: {response.status}")
+                    await self.debug_log(f"Failed to fetch item mapping, status: {response.status}")
                     return {}
         except Exception as e:
-            log.error(f"Error fetching item mapping: {e}")
+            await self.debug_log(f"Error fetching item mapping: {e}")
             return {}
 
     async def get_latest_prices(self) -> Dict[str, Any]:
         """Get latest prices for all items."""
         try:
-            log.info("Fetching latest prices from API")
+            await self.debug_log("Fetching latest prices from API")
             prices_url = "https://prices.runescape.wiki/api/v1/osrs/latest"
             
             async with self.session.get(prices_url) as response:
                 if response.status == 200:
                     prices_data = await response.json()
                     latest_prices = prices_data.get('data', {})
-                    log.info(f"Loaded latest prices for {len(latest_prices)} items")
+                    await self.debug_log(f"Loaded latest prices for {len(latest_prices)} items")
                     return latest_prices
                 else:
-                    log.error(f"Failed to fetch latest prices, status: {response.status}")
+                    await self.debug_log(f"Failed to fetch latest prices, status: {response.status}")
                     return {}
         except Exception as e:
-            log.error(f"Error fetching latest prices: {e}")
+            await self.debug_log(f"Error fetching latest prices: {e}")
             return {}
 
     async def get_price_history(self, item_id: int, timeframe: str) -> List[Dict[str, Any]]:
         """Get price history for an item."""
         try:
-            print(f"Fetching {timeframe} history for item {item_id}")
+            await self.debug_log(f"Fetching {timeframe} history for item {item_id}")
             history_url = f"https://prices.runescape.wiki/api/v1/osrs/{timeframe}?id={item_id}"
             
             async with self.session.get(history_url) as response:
                 if response.status == 200:
                     history_data = await response.json()
                     data_points = history_data.get('data', [])
-                    print(f"Loaded {len(data_points)} data points for {timeframe} history")
+                    await self.debug_log(f"Loaded {len(data_points)} data points for {timeframe} history")
                     return data_points
                 else:
-                    print(f"Failed to fetch {timeframe} history, status: {response.status}")
+                    await self.debug_log(f"Failed to fetch {timeframe} history, status: {response.status}")
                     return []
         except Exception as e:
-            print(f"Error fetching {timeframe} history: {e}")
+            await self.debug_log(f"Error fetching {timeframe} history: {e}")
             return []
 
     async def fetch_comprehensive_ge_data(self, item_name: str) -> Optional[Dict[str, Any]]:
         """Fetch comprehensive Grand Exchange data."""
         try:
-            log.info(f"Processing request for item: '{item_name}'")
+            await self.debug_log(f"Processing request for item: '{item_name}'")
             
             # Clean the search term
             search_term = item_name.lower().strip()
@@ -152,6 +153,7 @@ class OSRSGE(commands.Cog):
             # Get item mapping
             item_mapping = await self.get_item_mapping()
             if not item_mapping:
+                await self.debug_log("No item mapping available")
                 return None
             
             # Find the item in the mapping
@@ -161,14 +163,14 @@ class OSRSGE(commands.Cog):
             # Try exact match first
             if search_term in item_mapping:
                 target_item = item_mapping[search_term]
-                log.info(f"Exact match found: {target_item['name']}")
+                await self.debug_log(f"Exact match found: {target_item['name']}")
             else:
                 # Fuzzy matching
                 for item_name_lower, item_data in item_mapping.items():
                     # Exact match (highest priority)
                     if item_name_lower == search_term:
                         target_item = item_data
-                        print(f"Exact match found in fuzzy search: {item_data['name']}")
+                        await self.debug_log(f"Exact match found in fuzzy search: {item_data['name']}")
                         break
                     
                     # Partial match scoring
@@ -177,7 +179,7 @@ class OSRSGE(commands.Cog):
                         if score > best_match_score:
                             best_match_score = score
                             target_item = item_data
-                            print(f"Partial match found: {item_data['name']} (score: {score:.2f})")
+                            await self.debug_log(f"Partial match found: {item_data['name']} (score: {score:.2f})")
                     
                     # Also check if the search term starts with the item name
                     elif item_name_lower.startswith(search_term):
@@ -185,33 +187,26 @@ class OSRSGE(commands.Cog):
                         if score > best_match_score:
                             best_match_score = score
                             target_item = item_data
-                            print(f"Prefix match found: {item_data['name']} (score: {score:.2f})")
+                            await self.debug_log(f"Prefix match found: {item_data['name']} (score: {score:.2f})")
             
             if not target_item:
-                log.error(f"No item found matching '{item_name}'")
+                await self.debug_log(f"No item found matching '{item_name}'")
                 return None
             
             item_id = target_item['id']
             item_name_found = target_item['name']
-            log.info(f"Found item: {item_name_found} (ID: {item_id})")
+            await self.debug_log(f"Found item: {item_name_found} (ID: {item_id})")
             
             # Get latest prices
             latest_prices_data = await self.get_latest_prices()
             item_latest_prices = latest_prices_data.get(str(item_id))
-            log.debug(f"Latest prices for item {item_id}: {item_latest_prices}")
-            
-            # Debug: Check what we actually got from the API
-            log.debug(f"Raw latest_prices_data keys (first 10): {list(latest_prices_data.keys())[:10]}")
-            print(f"Debug: Looking for item_id as string: '{str(item_id)}'")
-            print(f"Debug: Item ID type: {type(item_id)}")
-            print(f"Debug: Available item IDs around our target:")
-            target_id_str = str(item_id)
-            for key in list(latest_prices_data.keys())[:20]:
-                if abs(int(key) - item_id) < 10:  # Show IDs close to our target
-                    print(f"  - {key}: {latest_prices_data[key]}")
+            await self.debug_log(f"Latest prices for item {item_id}: {item_latest_prices}")
             
             if not item_latest_prices:
-                log.error(f"No price data found for item ID {item_id}")
+                await self.debug_log(f"No price data found for item ID {item_id}")
+                # Debug: Show some available IDs
+                available_ids = list(latest_prices_data.keys())[:10]
+                await self.debug_log(f"Available price data IDs (first 10): {available_ids}")
                 return None
             
             # Fetch history data for all timeframes
@@ -234,20 +229,13 @@ class OSRSGE(commands.Cog):
             return processed_data
             
         except Exception as e:
-            print(f"Error in fetch_comprehensive_ge_data: {e}")
+            await self.debug_log(f"Error in fetch_comprehensive_ge_data: {e}")
             return None
 
     def process_comprehensive_data(self, raw_data: Dict[str, Any]) -> Dict[str, Any]:
         """Process and analyze all the fetched data."""
         mapping = raw_data['mapping']
         latest_prices = raw_data['latest_prices']
-
-        log.info(f"Processing data for: {mapping.get('name', 'Unknown')}")
-        log.debug(f"Latest prices data: {latest_prices}")
-        
-        print(f"Debug: Raw data keys: {list(raw_data.keys())}")
-        print(f"Debug: Mapping keys: {list(mapping.keys()) if mapping else 'None'}")
-        print(f"Debug: Latest prices type: {type(latest_prices)}")
         
         if not latest_prices:
             return None
@@ -726,22 +714,10 @@ class OSRSGE(commands.Cog):
         """
         Fetch comprehensive Grand Exchange data for any OSRS item.
         
-        Provides detailed item information including current prices, price trends,
-        market activity, trading metrics, volume statistics, and much more.
-        
         Examples:
         .ge whip
         .grandexchange "dragon scimitar"
         .price "twisted bow"
-        
-        Features:
-        • Real-time Grand Exchange prices from multiple timeframes
-        • Comprehensive price trend analysis (5m, 1h, 6h, 24h)
-        • Market activity and liquidity indicators
-        • Advanced trading metrics and profit calculations
-        • Volume statistics and trading patterns
-        • Item examine text and complete item details
-        • Alch profit calculations and margin analysis
         """
         # Handle quoted item names properly
         if item_name.startswith('"') and item_name.endswith('"'):
@@ -750,7 +726,6 @@ class OSRSGE(commands.Cog):
             item_name = item_name[1:-1]
         
         async with ctx.typing():
-            log.debug(f"Searching for item '{item_name}' (cleaned: '{item_name.lower().strip()}')")
             item_data = await self.fetch_comprehensive_ge_data(item_name)
             
             if item_data:
@@ -787,6 +762,64 @@ class OSRSGE(commands.Cog):
                 )
                 embed.set_footer(text=f"v{self.version}")
                 await ctx.send(embed=embed)
+
+    @commands.command(name="gedebug")
+    @commands.is_owner()
+    async def ge_debug(self, ctx, toggle: bool = None):
+        """Toggle debug mode for GE commands."""
+        if toggle is None:
+            current = await self.config.debug_mode()
+            await ctx.send(f"Debug mode is currently: {'**ON**' if current else '**OFF**'}")
+            return
+        
+        await self.config.debug_mode.set(toggle)
+        self.debug_mode = toggle
+        status = "**ENABLED**" if toggle else "**DISABLED**"
+        await ctx.send(f"GE Debug mode {status}")
+
+    @commands.command(name="getest")
+    @commands.is_owner()
+    async def ge_test(self, ctx, item_name: str = "whip"):
+        """Test GE API calls with detailed output."""
+        await ctx.send(f"Testing GE API with item: {item_name}")
+        
+        # Enable debug mode temporarily
+        old_debug = self.debug_mode
+        self.debug_mode = True
+        
+        try:
+            # Test item mapping
+            await ctx.send("📡 Testing item mapping API...")
+            mapping = await self.get_item_mapping()
+            await ctx.send(f"✅ Mapping loaded: {len(mapping)} items")
+            
+            # Test search
+            search_term = item_name.lower().strip()
+            if search_term in mapping:
+                item = mapping[search_term]
+                await ctx.send(f"✅ Found item: {item['name']} (ID: {item['id']})")
+                
+                # Test prices
+                await ctx.send("📡 Testing latest prices API...")
+                prices = await self.get_latest_prices()
+                await ctx.send(f"✅ Prices loaded: {len(prices)} items")
+                
+                item_price = prices.get(str(item['id']))
+                if item_price:
+                    await ctx.send(f"✅ Price data found: {item_price}")
+                else:
+                    await ctx.send(f"❌ No price data for ID {item['id']}")
+                    # Show some available IDs
+                    available = list(prices.keys())[:10]
+                    await ctx.send(f"Available IDs: {available}")
+            else:
+                await ctx.send(f"❌ Item '{item_name}' not found in mapping")
+                
+        except Exception as e:
+            await ctx.send(f"❌ Error during test: {e}")
+        finally:
+            # Restore debug mode
+            self.debug_mode = old_debug
 
     @commands.command(name="gehistory", aliases=["gehist"])
     async def ge_history(self, ctx):
