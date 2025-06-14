@@ -8,7 +8,7 @@ import math
 from datetime import datetime, timedelta
 
 class OSRSStats(commands.Cog):
-    """A comprehensive cog to fetch and display Old School RuneScape player statistics with detailed analysis."""
+    """Old School RuneScape player statistics and analysis tools. Supports usernames with spaces using quotes."""
     
     def __init__(self, bot: Red):
         self.bot = bot
@@ -446,20 +446,16 @@ class OSRSStats(commands.Cog):
     @commands.command(name="osrs", aliases=["osrsstats", "oldschool"])
     async def osrs_stats(self, ctx, *, args: str):
         """
-        Fetch and display comprehensive OSRS player statistics with detailed analysis.
+        Get comprehensive OSRS player statistics with detailed analysis and recommendations.
         
-        Usage: .osrs "<username>" [account_type]
-        Usage: .osrs <username_without_spaces> [account_type]
-        
-        Account types: normal, ironman, hardcore, ultimate, deadman, seasonal
+        Supports all account types (normal, ironman, hardcore, ultimate, deadman, seasonal).
+        Use quotes around usernames with spaces: .osrs "tcp syn ack"
         
         Examples:
         .osrs "tcp syn ack"
         .osrs "tcp syn ack" ironman
         .osrs Zezima
         .osrs Zezima hardcore
-        
-        Note: Use quotes around usernames with spaces!
         """
         # Parse arguments - handle quoted usernames and account types
         parts = []
@@ -518,18 +514,16 @@ class OSRSStats(commands.Cog):
     @commands.command(name="skill", aliases=["sk", "osrsskill", "oldschoolskill"])
     async def osrs_skill(self, ctx, *, args: str):
         """
-        Get extremely detailed information about a specific skill with progress tracking.
+        Get detailed analysis of a specific OSRS skill with progress tracking and unlocks.
         
-        Usage: .skill "<username>" <skill> [account_type]
-        Usage: .skill <username_without_spaces> <skill> [account_type]
+        Shows XP, level progress, virtual levels, milestones, and skill-specific information.
+        Use quotes around usernames with spaces: .skill "tcp syn ack" woodcutting
         
         Examples:
         .skill "tcp syn ack" woodcutting
-        .skill "tcp syn ack" woodcutting ironman
-        .skill Zezima attack
-        .skill Zezima attack hardcore
-        
-        Note: Use quotes around usernames with spaces!
+        .skill "tcp syn ack" attack ironman
+        .skill Zezima mining
+        .skill Zezima hp ultimate
         """
         # Parse arguments - handle quoted usernames
         parts = []
@@ -718,20 +712,19 @@ class OSRSStats(commands.Cog):
         
         return "\n".join(info) if info else None
 
-    @commands.command(name="osrsboss", aliases=["boss", "osrsbosses", "oldschoolboss"])
+    @commands.command(name="boss", aliases=["osrsboss", "osrsbosses", "oldschoolboss"])
     async def osrs_boss(self, ctx, *, args: str):
         """
-        Display all boss kill counts for a player.
+        Display all boss kill counts and PvM statistics for an OSRS player.
         
-        Usage: .osrsboss "<username>" [account_type]
-        Usage: .boss "<username>" [account_type]
+        Shows kill counts for all bosses, raids, and high-level PvM content.
+        Use quotes around usernames with spaces: .boss "tcp syn ack"
         
         Examples:
         .boss "tcp syn ack"
         .osrsboss "tcp syn ack" ironman
         .boss Zezima
-        
-        Note: Use quotes around usernames with spaces!
+        .osrsbosses Zezima hardcore
         """
         # Parse arguments
         parts = []
@@ -833,20 +826,19 @@ class OSRSStats(commands.Cog):
             
             await ctx.send(embed=embed)
 
-    @commands.command(name="osrsgoals", aliases=["goals", "osrstargets", "targets"])
+    @commands.command(name="goals", aliases=["osrsgoals", "osrstargets", "targets"])
     async def osrs_goals(self, ctx, *, args: str):
         """
-        Calculate XP and time estimates to reach target levels.
+        Calculate XP requirements and time estimates to reach target levels in OSRS.
         
-        Usage: .osrsgoals "<username>" <target_level> [skill]
-        Usage: .goals "<username>" <target_level> [skill]
+        Shows XP needed, progress percentage, and realistic time estimates for different training methods.
+        Use quotes around usernames with spaces: .goals "tcp syn ack" 99 woodcutting
         
         Examples:
         .goals "tcp syn ack" 99 woodcutting
         .osrsgoals "tcp syn ack" 90
         .goals Zezima 99 attack
-        
-        Note: Use quotes around usernames with spaces!
+        .targets Zezima 85 slayer
         """
         # Parse arguments
         parts = []
@@ -994,7 +986,9 @@ class OSRSStats(commands.Cog):
     @commands.command(name="osrshelp", aliases=["osrscommands", "osrsinfo"])
     async def osrs_help(self, ctx):
         """
-        Display comprehensive help information for all OSRS commands with examples for usernames with spaces.
+        Display comprehensive help information for all OSRS commands.
+        
+        Shows all available commands, aliases, usage examples, and important notes about usernames with spaces.
         """
         embed = discord.Embed(
             title="🗡️ OSRS Stats Commands - Complete Guide",
