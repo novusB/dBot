@@ -548,6 +548,9 @@ class OSRSGE(commands.Cog):
         trading_metrics = item_data.get('trading_metrics', {})
         volume_stats = item_data.get('volume_stats', {})
         
+        # Initialize insights_text
+        insights_text = ""
+        
         # Determine embed color based on overall trend
         overall_trend = price_trends.get('24h', {}).get('change_percent', 0)
         if overall_trend > 0:
@@ -716,6 +719,31 @@ class OSRSGE(commands.Cog):
                     value=calculations_text,
                     inline=True
                 )
+        
+        # Investment insights for expensive items
+        if current_price and current_price > 1000000:  # 1M+ items
+            if price_trends.get('24h', {}).get('change_percent'):
+                change_percent = price_trends['24h']['change_percent']
+                if change_percent > 5:
+                    insights_text += "🔥 **Hot Item:** Significant price increase!\n"
+                elif change_percent < -5:
+                    insights_text += "💥 **Market Crash:** Major price drop!\n"
+                elif change_percent > 2:
+                    insights_text += "📈 **Rising:** Good time to sell\n"
+                elif change_percent < -2:
+                    insights_text += "📉 **Falling:** Potential buying opportunity\n"
+            
+            if market_activity.get('price_stability') == 'volatile':
+                insights_text += "⚠️ **High volatility** - prices changing rapidly\n"
+            elif market_activity.get('price_stability') == 'very_stable':
+                insights_text += "✅ **Very stable** - consistent pricing\n"
+
+        if insights_text:
+            embed.add_field(
+                name="💡 Market Insights",
+                value=insights_text,
+                inline=False
+            )
         
         embed.set_footer(text=f"💡 Real-time data from OSRS Wiki • v{self.version}")
         
