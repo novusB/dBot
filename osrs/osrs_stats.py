@@ -121,6 +121,14 @@ class OSRSStats(commands.Cog):
     def cog_unload(self):
         asyncio.create_task(self.session.close())
 
+    def format_username_for_url(self, username: str) -> str:
+        """Format username for OSRS API URL - spaces become underscores."""
+        return username.replace(' ', '_')
+
+    def format_username_for_display(self, username: str) -> str:
+        """Format username for display - keep original formatting."""
+        return username
+
     async def fetch_player_stats(self, username: str, account_type: str = "normal") -> Optional[dict]:
         """Fetch player stats from OSRS Hiscores API with account type support."""
         base_urls = {
@@ -132,7 +140,9 @@ class OSRSStats(commands.Cog):
             "seasonal": "https://secure.runescape.com/m=hiscore_oldschool_seasonal/index_lite.ws"
         }
         
-        url = f"{base_urls.get(account_type, base_urls['normal'])}?player={username}"
+        # Format username for URL (spaces to underscores)
+        url_username = self.format_username_for_url(username)
+        url = f"{base_urls.get(account_type, base_urls['normal'])}?player={url_username}"
         
         try:
             async with self.session.get(url) as response:
@@ -331,11 +341,13 @@ class OSRSStats(commands.Cog):
         """Create a comprehensive overview embed with detailed analysis."""
         analysis = stats["analysis"]
         account_type_display = account_type.replace("_", " ").title() if account_type != "normal" else ""
+        display_username = self.format_username_for_display(username)
+        url_username = self.format_username_for_url(username)
         
         embed = discord.Embed(
-            title=f"🗡️ {account_type_display} OSRS Analysis for {username}",
+            title=f"🗡️ {account_type_display} OSRS Analysis for {display_username}",
             color=0x8B4513,
-            url=f"https://secure.runescape.com/m=hiscore_oldschool/hiscorepersonal?user1={username}"
+            url=f"https://secure.runescape.com/m=hiscore_oldschool/hiscorepersonal?user1={url_username}"
         )
         
         # Account Overview
@@ -432,16 +444,52 @@ class OSRSStats(commands.Cog):
         return "\n".join(f"• {rec}" for rec in recommendations[:4])  # Limit to 4 recommendations
 
     @commands.command(name="osrs", aliases=["osrsstats", "oldschool"])
-    async def osrs_stats(self, ctx, username: str, account_type: str = "normal"):
+    async def osrs_stats(self, ctx, *, args: str):
         """
         Fetch and display comprehensive OSRS player statistics with detailed analysis.
         
-        Usage: !osrs <username> [account_type]
+        Usage: !osrs "<username>" [account_type]
+        Usage: !osrs <username_without_spaces> [account_type]
+        
         Account types: normal, ironman, hardcore, ultimate, deadman, seasonal
-        Example: !osrs Zezima ironman
+        
+        Examples:
+        !osrs "tcp syn ack"
+        !osrs "tcp syn ack" ironman
+        !osrs Zezima
+        !osrs Zezima hardcore
+        
+        Note: Use quotes around usernames with spaces!
         """
-        username = username.strip().replace(' ', '_')
-        account_type = account_type.lower()
+        # Parse arguments - handle quoted usernames and account types
+        parts = []
+        current_part = ""
+        in_quotes = False
+        
+        for char in args:
+            if char == '"' and not in_quotes:
+                in_quotes = True
+            elif char == '"' and in_quotes:
+                in_quotes = False
+                if current_part:
+                    parts.append(current_part)
+                    current_part = ""
+            elif char == ' ' and not in_quotes:
+                if current_part:
+                    parts.append(current_part)
+                    current_part = ""
+            else:
+                current_part += char
+        
+        if current_part:
+            parts.append(current_part)
+        
+        if not parts:
+            await ctx.send("❌ Please provide a username!\n\n**Usage:**\n`!osrs \"username with spaces\"`\n`!osrs username_without_spaces`")
+            return
+        
+        username = parts[0]
+        account_type = parts[1].lower() if len(parts) > 1 else "normal"
         
         valid_types = ["normal", "ironman", "hardcore", "ultimate", "deadman", "seasonal"]
         if account_type not in valid_types:
@@ -451,9 +499,14 @@ class OSRSStats(commands.Cog):
             stats = await self.fetch_player_stats(username, account_type)
             
             if stats is None:
+                display_username = self.format_username_for_display(username)
                 embed = discord.Embed(
                     title="❌ Player Not Found",
-                    description=f"Could not find player '{username}' on the {account_type.title()} OSRS Hiscores.\n\nMake sure the username is correct and the player has logged in recently.",
+                    description=f"Could not find player '{display_username}' on the {account_type.title()} OSRS Hiscores.\n\n"
+                               f"**Make sure:**\n"
+                               f"• The username is spelled correctly\n"
+                               f"• The player has logged in recently\n"
+                               f"• Use quotes for usernames with spaces: `!osrs \"tcp syn ack\"`",
                     color=0xFF0000
                 )
                 await ctx.send(embed=embed)
@@ -463,16 +516,51 @@ class OSRSStats(commands.Cog):
             await ctx.send(embed=embed)
 
     @commands.command(name="osrsskill", aliases=["osrssk", "oldschoolskill"])
-    async def osrs_skill(self, ctx, username: str, skill: str, account_type: str = "normal"):
+    async def osrs_skill(self, ctx, *, args: str):
         """
         Get extremely detailed information about a specific skill with progress tracking.
         
-        Usage: !osrsskill <username> <skill> [account_type]
-        Example: !osrsskill Zezima woodcutting ironman
+        Usage: !osrsskill "<username>" <skill> [account_type]
+        Usage: !osrsskill <username_without_spaces> <skill> [account_type]
+        
+        Examples:
+        !osrsskill "tcp syn ack" woodcutting
+        !osrsskill "tcp syn ack" woodcutting ironman
+        !osrsskill Zezima attack
+        !osrsskill Zezima attack hardcore
+        
+        Note: Use quotes around usernames with spaces!
         """
-        username = username.strip().replace(' ', '_')
-        skill = skill.lower().capitalize()
-        account_type = account_type.lower()
+        # Parse arguments - handle quoted usernames
+        parts = []
+        current_part = ""
+        in_quotes = False
+        
+        for char in args:
+            if char == '"' and not in_quotes:
+                in_quotes = True
+            elif char == '"' and in_quotes:
+                in_quotes = False
+                if current_part:
+                    parts.append(current_part)
+                    current_part = ""
+            elif char == ' ' and not in_quotes:
+                if current_part:
+                    parts.append(current_part)
+                    current_part = ""
+            else:
+                current_part += char
+        
+        if current_part:
+            parts.append(current_part)
+        
+        if len(parts) < 2:
+            await ctx.send("❌ Please provide both username and skill!\n\n**Usage:**\n`!osrsskill \"username with spaces\" skill`\n`!osrsskill username_without_spaces skill`")
+            return
+        
+        username = parts[0]
+        skill = parts[1].lower().capitalize()
+        account_type = parts[2].lower() if len(parts) > 2 else "normal"
         
         # Enhanced skill mapping with more abbreviations
         skill_mapping = {
@@ -489,9 +577,11 @@ class OSRSStats(commands.Cog):
             stats = await self.fetch_player_stats(username, account_type)
             
             if stats is None:
+                display_username = self.format_username_for_display(username)
                 embed = discord.Embed(
                     title="❌ Player Not Found",
-                    description=f"Could not find player '{username}' on the OSRS Hiscores.",
+                    description=f"Could not find player '{display_username}' on the OSRS Hiscores.\n\n"
+                               f"Use quotes for usernames with spaces: `!osrsskill \"tcp syn ack\" woodcutting`",
                     color=0xFF0000
                 )
                 await ctx.send(embed=embed)
@@ -514,8 +604,10 @@ class OSRSStats(commands.Cog):
     def create_detailed_skill_embed(self, username: str, skill: str, skill_data: dict, account_type: str) -> discord.Embed:
         """Create an extremely detailed skill analysis embed."""
         icon = skill_data["icon"]
+        display_username = self.format_username_for_display(username)
+        
         embed = discord.Embed(
-            title=f"{icon} {skill} Analysis for {username}",
+            title=f"{icon} {skill} Analysis for {display_username}",
             color=0x8B4513
         )
         
@@ -627,15 +719,55 @@ class OSRSStats(commands.Cog):
         return "\n".join(info) if info else None
 
     @commands.command(name="osrsgoals", aliases=["goals", "osrstargets"])
-    async def osrs_goals(self, ctx, username: str, target_level: int, skill: str = "Overall"):
+    async def osrs_goals(self, ctx, *, args: str):
         """
         Calculate XP and time estimates to reach target levels.
         
-        Usage: !osrsgoals <username> <target_level> [skill]
-        Example: !osrsgoals Zezima 99 woodcutting
+        Usage: !osrsgoals "<username>" <target_level> [skill]
+        Usage: !osrsgoals <username_without_spaces> <target_level> [skill]
+        
+        Examples:
+        !osrsgoals "tcp syn ack" 99 woodcutting
+        !osrsgoals "tcp syn ack" 90
+        !osrsgoals Zezima 99 attack
+        
+        Note: Use quotes around usernames with spaces!
         """
-        username = username.strip().replace(' ', '_')
-        skill = skill.lower().capitalize()
+        # Parse arguments
+        parts = []
+        current_part = ""
+        in_quotes = False
+        
+        for char in args:
+            if char == '"' and not in_quotes:
+                in_quotes = True
+            elif char == '"' and in_quotes:
+                in_quotes = False
+                if current_part:
+                    parts.append(current_part)
+                    current_part = ""
+            elif char == ' ' and not in_quotes:
+                if current_part:
+                    parts.append(current_part)
+                    current_part = ""
+            else:
+                current_part += char
+        
+        if current_part:
+            parts.append(current_part)
+        
+        if len(parts) < 2:
+            await ctx.send("❌ Please provide username and target level!\n\n**Usage:**\n`!osrsgoals \"username with spaces\" 99 skill`\n`!osrsgoals username_without_spaces 99 skill`")
+            return
+        
+        username = parts[0]
+        try:
+            target_level = int(parts[1])
+        except ValueError:
+            await ctx.send("❌ Target level must be a number!")
+            return
+        
+        skill = parts[2].lower().capitalize() if len(parts) > 2 else "Overall"
         
         # Skill mapping
         skill_mapping = {
@@ -656,9 +788,11 @@ class OSRSStats(commands.Cog):
             stats = await self.fetch_player_stats(username)
             
             if stats is None:
+                display_username = self.format_username_for_display(username)
                 embed = discord.Embed(
                     title="❌ Player Not Found",
-                    description=f"Could not find player '{username}' on the OSRS Hiscores.",
+                    description=f"Could not find player '{display_username}' on the OSRS Hiscores.\n\n"
+                               f"Use quotes for usernames with spaces: `!osrsgoals \"tcp syn ack\" 99 woodcutting`",
                     color=0xFF0000
                 )
                 await ctx.send(embed=embed)
@@ -670,9 +804,10 @@ class OSRSStats(commands.Cog):
             
             current_level = stats["skills"][skill]["level"]
             current_xp = stats["skills"][skill]["xp"]
+            display_username = self.format_username_for_display(username)
             
             if current_level >= target_level:
-                await ctx.send(f"🎉 {username} has already achieved level {target_level} {skill}!")
+                await ctx.send(f"🎉 {display_username} has already achieved level {target_level} {skill}!")
                 return
             
             # Calculate target XP
@@ -685,7 +820,7 @@ class OSRSStats(commands.Cog):
             
             embed = discord.Embed(
                 title=f"🎯 Goal Calculator: {skill} Level {target_level}",
-                description=f"Analysis for {username}",
+                description=f"Analysis for {display_username}",
                 color=0x00FF00
             )
             
@@ -740,6 +875,74 @@ class OSRSStats(commands.Cog):
         }
         
         return xp_rates.get(skill, {})
+
+    @commands.command(name="osrshelp", aliases=["osrscommands"])
+    async def osrs_help(self, ctx):
+        """
+        Display help information for OSRS commands with examples for usernames with spaces.
+        """
+        embed = discord.Embed(
+            title="🗡️ OSRS Stats Commands Help",
+            description="Complete guide to using OSRS stats commands",
+            color=0x8B4513
+        )
+        
+        embed.add_field(
+            name="📊 Main Stats Command",
+            value="**`!osrs \"username\" [account_type]`**\n"
+                  "Get complete player analysis\n\n"
+                  "**Examples:**\n"
+                  "`!osrs \"tcp syn ack\"` - Normal account\n"
+                  "`!osrs \"tcp syn ack\" ironman` - Ironman\n"
+                  "`!osrs Zezima` - No spaces, no quotes needed\n"
+                  "`!osrs Zezima hardcore` - Hardcore ironman",
+            inline=False
+        )
+        
+        embed.add_field(
+            name="🎯 Skill Analysis Command",
+            value="**`!osrsskill \"username\" <skill> [account_type]`**\n"
+                  "Get detailed skill information\n\n"
+                  "**Examples:**\n"
+                  "`!osrsskill \"tcp syn ack\" woodcutting`\n"
+                  "`!osrsskill \"tcp syn ack\" attack ironman`\n"
+                  "`!osrsskill Zezima mining`\n"
+                  "`!osrsskill Zezima hp ultimate`",
+            inline=False
+        )
+        
+        embed.add_field(
+            name="🏆 Goal Calculator Command",
+            value="**`!osrsgoals \"username\" <target_level> [skill]`**\n"
+                  "Calculate XP and time to reach goals\n\n"
+                  "**Examples:**\n"
+                  "`!osrsgoals \"tcp syn ack\" 99 woodcutting`\n"
+                  "`!osrsgoals \"tcp syn ack\" 90` - Overall level\n"
+                  "`!osrsgoals Zezima 99 attack`",
+            inline=False
+        )
+        
+        embed.add_field(
+            name="⚠️ Important Notes",
+            value="• **Use quotes around usernames with spaces!**\n"
+                  "• Account types: `normal`, `ironman`, `hardcore`, `ultimate`, `deadman`, `seasonal`\n"
+                  "• Skill abbreviations work: `hp`, `wc`, `fm`, `rc`, `att`, `str`, `def`, etc.\n"
+                  "• Commands also work with aliases: `!osrsstats`, `!oldschool`, `!osrssk`",
+            inline=False
+        )
+        
+        embed.add_field(
+            name="🔍 Username Examples",
+            value="**With Spaces (NEED QUOTES):**\n"
+                  "`\"tcp syn ack\"`, `\"iron man btw\"`, `\"pk master 99\"`\n\n"
+                  "**Without Spaces (NO QUOTES NEEDED):**\n"
+                  "`Zezima`, `Lynx_Titan`, `Woox`, `B0aty`",
+            inline=False
+        )
+        
+        embed.set_footer(text="💡 Tip: Always use quotes for usernames with spaces to avoid errors!")
+        
+        await ctx.send(embed=embed)
 
 def setup(bot: Red):
     bot.add_cog(OSRSStats(bot))
